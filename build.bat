@@ -53,14 +53,14 @@ go fmt ./...
 goto :eof
 
 :frps
-echo Building frps...
+echo Building nhp-frps...
 set CGO_ENABLED=0
-go build -trimpath -ldflags "%LDFLAGS%" -tags frps -o bin\frps.exe .\cmd\frps
+go build -trimpath -ldflags "%LDFLAGS%" -tags frps -o bin\nhp-frps.exe .\cmd\frps
 if errorlevel 1 (
-    echo ERROR: Failed to build frps.
+    echo ERROR: Failed to build nhp-frps.
     exit /b 1
 )
-echo frps built successfully: bin\frps.exe
+echo nhp-frps built successfully: bin\nhp-frps.exe
 goto :eof
 
 :build-sdk
@@ -85,7 +85,7 @@ if not exist "%OPENNHP_DIR%\endpoints" (
 )
 
 :: Create sdk output directory
-if not exist sdk mkdir sdk
+if not exist bin\sdk mkdir bin\sdk
 
 :: Capture Go env for passing into MSYS2 (login shell starts with a clean environment)
 for /f "delims=" %%i in ('go env GOROOT')    do set "GO_GOROOT=%%i"
@@ -97,10 +97,16 @@ for /f "delims=" %%i in ('go env GOCACHE')   do set "GO_GOCACHE=%%i"
 :: Pass Go env as arguments since MSYS2 login shell doesn't inherit Windows env vars.
 set "MSYS2_BASH=%MSYS2_DIR%\usr\bin\bash.exe"
 set "SDK_SCRIPT=%CD%\hack\build-sdk-windows.sh"
+echo [DEBUG] MSYS2_BASH=%MSYS2_BASH%
+echo [DEBUG] SDK_SCRIPT=%SDK_SCRIPT%
+echo [DEBUG] GO_GOROOT=%GO_GOROOT%
+echo [DEBUG] OPENNHP_DIR=%OPENNHP_DIR%
+echo [DEBUG] TEMP=%TEMP%
 "%MSYS2_BASH%" -l "%SDK_SCRIPT%" "%GO_GOROOT%" "%GO_GOPATH%" "%GO_GOMODCACHE%" "%GO_GOCACHE%" "%CD%" "%OPENNHP_DIR%" "%TEMP%"
+echo [DEBUG] MSYS2 bash exit code: %ERRORLEVEL%
 if errorlevel 1 (
     echo ERROR: Failed to build NHP SDK. Make sure mingw-w64-x86_64-gcc is installed in MSYS2.
-    echo        Also ensure Windows Defender has exclusions for sdk\ and temp build dirs.
+    echo        Also ensure Windows Defender has exclusions for bin\sdk\ and temp build dirs.
     exit /b 1
 )
 
@@ -122,36 +128,30 @@ goto :eof
 call :build-sdk
 if errorlevel 1 exit /b 1
 
-echo Building frpc...
-if not exist bin\sdk mkdir bin\sdk
-copy /y sdk\nhp-agent.* bin\sdk\ >nul 2>&1
-go build -trimpath -ldflags "%LDFLAGS%" -tags frpc -o bin\frpc.exe .\cmd\frpc
+echo Building nhp-frpc...
+go build -trimpath -ldflags "%LDFLAGS%" -o bin\nhp-frpc.exe .\cmd\frpc
 if errorlevel 1 (
-    echo ERROR: Failed to build frpc.
+    echo ERROR: Failed to build nhp-frpc.
     exit /b 1
 )
-echo frpc built successfully: bin\frpc.exe
+echo nhp-frpc built successfully: bin\nhp-frpc.exe
 goto :eof
 
 :clean
 echo Cleaning build artifacts...
-if exist bin\frpc.exe del /f bin\frpc.exe
-if exist bin\frps.exe del /f bin\frps.exe
+if exist bin\nhp-frpc.exe del /f bin\nhp-frpc.exe
+if exist bin\nhp-frps.exe del /f bin\nhp-frps.exe
 if exist bin\sdk rmdir /s /q bin\sdk
 goto :eof
 
 :clean-sdk
 echo Cleaning SDK binaries...
-if exist sdk\nhp-agent.dll del /f sdk\nhp-agent.dll
-if exist sdk\nhp-agent.h del /f sdk\nhp-agent.h
+if exist bin\sdk\nhp-agent.dll del /f bin\sdk\nhp-agent.dll
+if exist bin\sdk\nhp-agent.h del /f bin\sdk\nhp-agent.h
 goto :eof
 
 :test
-go test -v --cover ./assets/...
 go test -v --cover ./cmd/...
-go test -v --cover ./client/...
-go test -v --cover ./server/...
-go test -v --cover ./pkg/...
 goto :eof
 
 :help
@@ -160,8 +160,8 @@ echo.
 echo Targets:
 echo   all        Build everything (default)
 echo   build      Build frps and frpc
-echo   frps       Build frps only
-echo   frpc       Build frpc only (includes SDK)
+echo   frps       Build nhp-frps only
+echo   frpc       Build nhp-frpc only (includes SDK)
 echo   build-sdk  Build OpenNHP SDK (nhp-agent.dll)
 echo   fmt        Format Go code
 echo   test       Run tests

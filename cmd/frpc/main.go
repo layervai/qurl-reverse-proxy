@@ -22,7 +22,6 @@ import (
 	"syscall"
 
 	"github.com/OpenNHP/opennhp/endpoints/agent"
-	_ "github.com/fatedier/frp/assets/frpc"
 	"github.com/fatedier/frp/cmd/frpc/sub"
 	"github.com/fatedier/frp/pkg/util/system"
 )

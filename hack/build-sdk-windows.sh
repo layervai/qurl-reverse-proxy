@@ -3,7 +3,7 @@
 # Called by build.bat with arguments (Windows paths with backslashes):
 #   $1 = GOROOT  $2 = GOPATH  $3 = GOMODCACHE  $4 = GOCACHE
 #   $5 = PROJECT_DIR  $6 = OPENNHP_DIR  $7 = TEMP dir
-set -e
+set -ex
 
 # Convert Windows path to MSYS2 path for bash: C:\foo -> /c/foo
 to_msys() {
@@ -43,5 +43,5 @@ cd endpoints && go mod tidy
 
 CGO_ENABLED=1 CC=gcc go build -a -trimpath -buildmode=c-shared \
   -ldflags="-w -s" -v \
-  -o ../../../sdk/nhp-agent.dll \
+  -o ../../../bin/sdk/nhp-agent.dll \
   ./agent/main/main.go ./agent/main/export.go
