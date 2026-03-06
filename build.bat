@@ -1,8 +1,30 @@
 @echo off
 setlocal enabledelayedexpansion
 
-set LDFLAGS=-s -w
 set OPENNHP_DIR=third_party\opennhp
+set VERSION_PKG=github.com/OpenNHP/nhp-frp/pkg/version
+
+:: Capture version info from git
+for /f "delims=" %%i in ('git describe --tags --abbrev=0 2^>nul') do set "BASE_VERSION=%%i"
+if "%BASE_VERSION%"=="" set BASE_VERSION=0.1.0
+for /f "delims=" %%i in ('powershell -NoProfile -Command "[DateTime]::UtcNow.ToString('yyMMddHHmmss')"') do set "BUILD_TIMESTAMP=%%i"
+set VERSION=%BASE_VERSION%.%BUILD_TIMESTAMP%
+for /f "delims=" %%i in ('git rev-parse HEAD 2^>nul') do set "GIT_COMMIT=%%i"
+if "%GIT_COMMIT%"=="" set GIT_COMMIT=unknown
+for /f "delims=" %%i in ('git log -1 --format^=%%ci 2^>nul') do set "GIT_COMMIT_TIME=%%i"
+if "%GIT_COMMIT_TIME%"=="" set GIT_COMMIT_TIME=unknown
+for /f "delims=" %%i in ('powershell -NoProfile -Command "[DateTime]::UtcNow.ToString('yyyy-MM-dd HH:mm:ss')"') do set "BUILD_DATE=%%i"
+if "%BUILD_DATE%"=="" set BUILD_DATE=unknown
+pushd %OPENNHP_DIR%
+for /f "delims=" %%i in ('git describe --tags --always 2^>nul') do set "NHP_VERSION=%%i"
+popd
+if "%NHP_VERSION%"=="" set NHP_VERSION=unknown
+for /f "delims=" %%i in ('findstr /r "github.com/fatedier/frp " go.mod') do (
+    for %%a in (%%i) do set "FRP_VERSION=%%a"
+)
+if "%FRP_VERSION%"=="" set FRP_VERSION=unknown
+
+set LDFLAGS=-s -w -X '%VERSION_PKG%.Version=%VERSION%' -X '%VERSION_PKG%.GitCommit=%GIT_COMMIT%' -X '%VERSION_PKG%.BuildDate=%BUILD_DATE%' -X '%VERSION_PKG%.NHPVersion=%NHP_VERSION%'
 
 :: Auto-detect MSYS2 for CGO/SDK builds
 set MSYS2_DIR=
@@ -29,6 +51,7 @@ echo Unknown target: %TARGET%
 goto :help
 
 :all
+call :print-version
 call :env
 call :fmt
 call :build
@@ -37,6 +60,15 @@ goto :eof
 :build
 call :frps
 call :frpc
+goto :eof
+
+:print-version
+powershell -NoProfile -Command "Write-Host '[nhp-frp] Start building...' -ForegroundColor Blue"
+powershell -NoProfile -Command "Write-Host 'Version:     %VERSION% (OpenNHP: %NHP_VERSION%, FRP: %FRP_VERSION%)' -ForegroundColor Blue"
+powershell -NoProfile -Command "Write-Host 'Commit id:   %GIT_COMMIT%' -ForegroundColor Blue"
+powershell -NoProfile -Command "Write-Host 'Commit time: %GIT_COMMIT_TIME%' -ForegroundColor Blue"
+powershell -NoProfile -Command "Write-Host 'Build time:  %BUILD_DATE%' -ForegroundColor Blue"
+echo.
 goto :eof
 
 :env
@@ -53,18 +85,19 @@ go fmt ./...
 goto :eof
 
 :frps
-echo Building nhp-frps...
+call :print-version
+powershell -NoProfile -Command "Write-Host '[nhp-frp] Building nhp-frps ...' -ForegroundColor Blue"
 set CGO_ENABLED=0
 go build -trimpath -ldflags "%LDFLAGS%" -tags frps -o bin\nhp-frps.exe .\cmd\frps
 if errorlevel 1 (
     echo ERROR: Failed to build nhp-frps.
     exit /b 1
 )
-echo nhp-frps built successfully: bin\nhp-frps.exe
+powershell -NoProfile -Command "Write-Host '[nhp-frp] nhp-frps built successfully!' -ForegroundColor Blue"
 goto :eof
 
 :build-sdk
-echo [Nhp-frp] Building OpenNHP SDK for Windows (nhp-agent.dll)...
+powershell -NoProfile -Command "Write-Host '[nhp-frp] Building OpenNHP SDK for Windows (nhp-agent.dll)...' -ForegroundColor Blue"
 
 :: CGO requires a working C compiler. On Windows we use MSYS2 MinGW GCC.
 :: GCC must be invoked with the MSYS2 mingw64 sysroot so it can find headers.
@@ -76,7 +109,7 @@ if "%MSYS2_DIR%"=="" (
 
 :: Check submodule is initialized
 if not exist "%OPENNHP_DIR%\endpoints" (
-    echo [Nhp-frp] Initializing OpenNHP submodule...
+    powershell -NoProfile -Command "Write-Host '[nhp-frp] Initializing OpenNHP submodule...' -ForegroundColor Blue"
     git submodule update --init --recursive
     if errorlevel 1 (
         echo ERROR: Failed to initialize submodule.
@@ -97,20 +130,15 @@ for /f "delims=" %%i in ('go env GOCACHE')   do set "GO_GOCACHE=%%i"
 :: Pass Go env as arguments since MSYS2 login shell doesn't inherit Windows env vars.
 set "MSYS2_BASH=%MSYS2_DIR%\usr\bin\bash.exe"
 set "SDK_SCRIPT=%CD%\hack\build-sdk-windows.sh"
-echo [DEBUG] MSYS2_BASH=%MSYS2_BASH%
-echo [DEBUG] SDK_SCRIPT=%SDK_SCRIPT%
-echo [DEBUG] GO_GOROOT=%GO_GOROOT%
-echo [DEBUG] OPENNHP_DIR=%OPENNHP_DIR%
-echo [DEBUG] TEMP=%TEMP%
 "%MSYS2_BASH%" -l "%SDK_SCRIPT%" "%GO_GOROOT%" "%GO_GOPATH%" "%GO_GOMODCACHE%" "%GO_GOCACHE%" "%CD%" "%OPENNHP_DIR%" "%TEMP%"
-echo [DEBUG] MSYS2 bash exit code: %ERRORLEVEL%
-if errorlevel 1 (
+:: MSYS2 login shell may return non-zero even on success, so verify the output file
+if not exist bin\sdk\nhp-agent.dll (
     echo ERROR: Failed to build NHP SDK. Make sure mingw-w64-x86_64-gcc is installed in MSYS2.
     echo        Also ensure Windows Defender has exclusions for bin\sdk\ and temp build dirs.
     exit /b 1
 )
 
-:: Restore submodule changes
+:: Restore submodule changes (ignore errors from git commands)
 pushd %OPENNHP_DIR%\nhp
 git checkout go.mod go.sum 2>nul
 popd
@@ -121,31 +149,36 @@ pushd %OPENNHP_DIR%
 git reset --hard HEAD 2>nul
 popd
 
-echo [Nhp-frp] Windows SDK built successfully!
+powershell -NoProfile -Command "Write-Host '[nhp-frp] OpenNHP Windows SDK built successfully!' -ForegroundColor Blue"
+:: Reset errorlevel so callers don't see stale errors from git/powershell
+cmd /c "exit /b 0"
 goto :eof
 
 :frpc
+call :print-version
 call :build-sdk
 if errorlevel 1 exit /b 1
 
-echo Building nhp-frpc...
+powershell -NoProfile -Command "Write-Host '[nhp-frp] Building nhp-frpc ...' -ForegroundColor Blue"
+set "PATH=%MSYS2_DIR%\mingw64\bin;%PATH%"
+set CGO_ENABLED=1
 go build -trimpath -ldflags "%LDFLAGS%" -o bin\nhp-frpc.exe .\cmd\frpc
 if errorlevel 1 (
     echo ERROR: Failed to build nhp-frpc.
     exit /b 1
 )
-echo nhp-frpc built successfully: bin\nhp-frpc.exe
+powershell -NoProfile -Command "Write-Host '[nhp-frp] nhp-frpc built successfully!' -ForegroundColor Blue"
 goto :eof
 
 :clean
-echo Cleaning build artifacts...
+powershell -NoProfile -Command "Write-Host '[nhp-frp] Cleaning build artifacts...' -ForegroundColor Blue"
 if exist bin\nhp-frpc.exe del /f bin\nhp-frpc.exe
 if exist bin\nhp-frps.exe del /f bin\nhp-frps.exe
 if exist bin\sdk rmdir /s /q bin\sdk
 goto :eof
 
 :clean-sdk
-echo Cleaning SDK binaries...
+powershell -NoProfile -Command "Write-Host '[nhp-frp] Cleaning OpenNHP SDK binaries...' -ForegroundColor Blue"
 if exist bin\sdk\nhp-agent.dll del /f bin\sdk\nhp-agent.dll
 if exist bin\sdk\nhp-agent.h del /f bin\sdk\nhp-agent.h
 goto :eof

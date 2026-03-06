@@ -3,7 +3,7 @@
 # Called by build.bat with arguments (Windows paths with backslashes):
 #   $1 = GOROOT  $2 = GOPATH  $3 = GOMODCACHE  $4 = GOCACHE
 #   $5 = PROJECT_DIR  $6 = OPENNHP_DIR  $7 = TEMP dir
-set -ex
+set -e
 
 # Convert Windows path to MSYS2 path for bash: C:\foo -> /c/foo
 to_msys() {

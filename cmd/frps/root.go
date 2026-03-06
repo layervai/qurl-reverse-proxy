@@ -27,8 +27,9 @@ import (
 	"github.com/fatedier/frp/pkg/config/v1/validation"
 	"github.com/fatedier/frp/pkg/policy/security"
 	"github.com/fatedier/frp/pkg/util/log"
-	"github.com/fatedier/frp/pkg/util/version"
 	"github.com/fatedier/frp/server"
+
+	nhpversion "github.com/OpenNHP/nhp-frp/pkg/version"
 )
 
 var (
@@ -51,11 +52,11 @@ func init() {
 }
 
 var rootCmd = &cobra.Command{
-	Use:   "frps",
-	Short: "frps is the server of frp (https://github.com/fatedier/frp)",
+	Use:   "nhp-frps",
+	Short: "nhp-frps is the server of nhp-frp (https://github.com/OpenNHP/nhp-frp)",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if showVersion {
-			fmt.Println(version.Full())
+			fmt.Println(nhpversion.Full())
 			return nil
 		}
 

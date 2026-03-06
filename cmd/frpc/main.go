@@ -21,6 +21,7 @@ import (
 	"path/filepath"
 	"syscall"
 
+	"github.com/OpenNHP/nhp-frp/pkg/version"
 	"github.com/OpenNHP/opennhp/endpoints/agent"
 	"github.com/fatedier/frp/cmd/frpc/sub"
 	"github.com/fatedier/frp/pkg/util/system"
@@ -28,13 +29,8 @@ import (
 
 const (
 	colorReset  = "\033[0m"
-	colorCyan   = "\033[36m"
 	colorGreen  = "\033[32m"
 	colorYellow = "\033[33m"
-	colorBlue   = "\033[34m"
-	colorPurple = "\033[35m"
-	colorBold   = "\033[1m"
-	colorDim    = "\033[2m"
 )
 
 func nhpAgentStart(waitCh chan error) {
@@ -78,6 +74,7 @@ func main() {
 	}
 
 	fmt.Printf("nhp agent started successfully\n")
+	fmt.Printf("%s\n", version.Short())
 
 	system.EnableCompatibilityMode()
 	sub.Execute()
