@@ -2,7 +2,7 @@
 
 [English](README.md) | [中文](README_zh.md)
 
-NHP-FRP integrates [OpenNHP](https://github.com/OpenNHP/opennhp) (Network Hiding Protocol) with [frp](https://github.com/fatedier/frp) (fast reverse proxy) to provide **zero-trust network access** for reverse proxy tunnels.
+NHP-FRP integrates [OpenNHP](https://github.com/OpenNHP/opennhp) (Network infrastructure Hiding Protocol) with [frp](https://github.com/fatedier/frp) (fast reverse proxy) to provide **zero-trust network access** for reverse proxy tunnels.
 
 ## What is NHP-FRP?
 
