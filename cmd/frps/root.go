@@ -18,6 +18,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -32,6 +33,13 @@ import (
 	nhpversion "github.com/OpenNHP/nhp-frp/pkg/version"
 )
 
+const (
+	colorReset = "\033[0m"
+	colorGreen = "\033[32m"
+	colorCyan  = "\033[36m"
+	colorBold  = "\033[1m"
+)
+
 var (
 	cfgFile          string
 	showVersion      bool
@@ -40,6 +48,18 @@ var (
 
 	serverCfg v1.ServerConfig
 )
+
+func printBanner() {
+	banner := `
+  _   _ _   _ ____        _____ ____  ____
+ | \ | | | | |  _ \      |  ___|  _ \|  _ \
+ |  \| | |_| | |_) |_____| |_  | |_) | |_) |
+ | |\  |  _  |  __/______|  _| |  _ <|  __/
+ |_| \_|_| |_|_|         |_|   |_| \_\_|
+`
+	fmt.Printf("%s%s%s%s", colorBold, colorCyan, banner, colorReset)
+	fmt.Printf("  %s%s (server)%s\n\n", colorGreen, nhpversion.Short(), colorReset)
+}
 
 func init() {
 	rootCmd.PersistentFlags().StringVarP(&cfgFile, "config", "c", "", "config file of frps")
@@ -55,9 +75,25 @@ var rootCmd = &cobra.Command{
 	Use:   "nhp-frps",
 	Short: "nhp-frps is the server of nhp-frp (https://github.com/OpenNHP/nhp-frp)",
 	RunE: func(cmd *cobra.Command, args []string) error {
+		printBanner()
+
 		if showVersion {
 			fmt.Println(nhpversion.Full())
 			return nil
+		}
+
+		// Set binary directory for config template (e.g., log path)
+		if exePath, err := os.Executable(); err == nil {
+			binDir := filepath.ToSlash(filepath.Dir(exePath))
+			config.GetValues().Envs["NHP_BIN_DIR"] = binDir
+
+			// Default config path: <binary_dir>/etc/frps.toml
+			if cfgFile == "" {
+				defaultCfg := filepath.Join(binDir, "etc", "frps.toml")
+				if _, err := os.Stat(defaultCfg); err == nil {
+					cfgFile = defaultCfg
+				}
+			}
 		}
 
 		var (

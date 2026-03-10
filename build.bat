@@ -93,7 +93,8 @@ if errorlevel 1 (
     echo ERROR: Failed to build nhp-frps.
     exit /b 1
 )
-powershell -NoProfile -Command "Write-Host '[nhp-frp] nhp-frps built successfully!' -ForegroundColor Blue"
+set "BUILD_MSG=[nhp-frp] nhp-frps built successfully -> %CD%\bin\nhp-frps.exe"
+powershell -NoProfile -Command "Write-Host $env:BUILD_MSG -ForegroundColor Green"
 goto :eof
 
 :build-sdk
@@ -149,7 +150,8 @@ pushd %OPENNHP_DIR%
 git reset --hard HEAD 2>nul
 popd
 
-powershell -NoProfile -Command "Write-Host '[nhp-frp] OpenNHP Windows SDK built successfully!' -ForegroundColor Blue"
+set "BUILD_MSG=[nhp-frp] OpenNHP Windows SDK built successfully -> %CD%\bin\sdk\nhp-agent.dll"
+powershell -NoProfile -Command "Write-Host $env:BUILD_MSG -ForegroundColor Green"
 :: Reset errorlevel so callers don't see stale errors from git/powershell
 cmd /c "exit /b 0"
 goto :eof
@@ -167,7 +169,8 @@ if errorlevel 1 (
     echo ERROR: Failed to build nhp-frpc.
     exit /b 1
 )
-powershell -NoProfile -Command "Write-Host '[nhp-frp] nhp-frpc built successfully!' -ForegroundColor Blue"
+set "BUILD_MSG=[nhp-frp] nhp-frpc built successfully -> %CD%\bin\nhp-frpc.exe"
+powershell -NoProfile -Command "Write-Host $env:BUILD_MSG -ForegroundColor Green"
 goto :eof
 
 :clean

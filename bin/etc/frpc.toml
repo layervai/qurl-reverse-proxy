@@ -1,0 +1,34 @@
+# FRP server address and port to connect to
+serverAddr = "acdemo.opennhp.org"
+serverPort = 7000
+
+# Log to file instead of console
+log.to = "{{ .Envs.NHP_BIN_DIR }}/logs/nhp-frpc.log"
+log.level = "info"
+log.maxDays = 3
+
+# Authentication method and token for server connection
+auth.method = "token"
+auth.token = "opennhp-frp"
+
+# Local configuration web dashboard for monitoring proxy status
+# Accessible at http://127.0.0.1:7400
+webServer.addr = "127.0.0.1"
+webServer.port = 7400
+
+# Proxy: expose local static file server (port 8888) via subdomain
+# Subdomain is dynamically set to the machine ID at startup
+# Accessible at http://<machine-id>.ac.opennhp.org
+[[proxies]]
+name = "file-server"
+type = "http"
+localIP = "127.0.0.1"
+localPort = 8888
+subdomain = "{{ .Envs.NHP_MACHINE_ID }}"
+
+# Enable plugin proxy for HTTPS to HTTP conversion (optional)
+# [proxies.plugin]
+# type = "https2http"
+# localAddr = "127.0.0.1:8888"
+# crtPath = "/certs/server.crt"
+# keyPath = "/certs/server.key"

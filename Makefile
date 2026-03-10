@@ -18,6 +18,7 @@ LDFLAGS := -s -w -X '$(VERSION_PKG).Version=$(VERSION)' -X '$(VERSION_PKG).GitCo
 
 # ANSI color codes
 BLUE := \033[34m
+GREEN := \033[32m
 RESET := \033[0m
 
 all: print-version env build
@@ -41,7 +42,7 @@ fmt:
 frps:
 	@printf "$(BLUE)[nhp-frp] Building nhp-frps ...$(RESET)\n"
 	env CGO_ENABLED=0 go build -trimpath -ldflags "$(LDFLAGS)" -tags frps -o bin/nhp-frps ./cmd/frps
-	@printf "$(BLUE)[nhp-frp] nhp-frps built successfully!$(RESET)\n"
+	@printf "$(GREEN)[nhp-frp] nhp-frps built successfully! -> $(CURDIR)/bin/nhp-frps$(RESET)\n"
 
 # Build OpenNHP SDK from submodule
 build-sdk:
@@ -62,7 +63,7 @@ build-sdk-linux:
 	@cd $(OPENNHP_DIR)/endpoints && \
 		go build -a -trimpath -buildmode=c-shared -ldflags="-w -s" -v \
 		-o ../../../bin/sdk/nhp-agent.so ./agent/main/main.go ./agent/main/export.go
-	@printf "$(BLUE)[nhp-frp] OpenNHP Linux SDK built successfully!$(RESET)\n"
+	@printf "$(GREEN)[nhp-frp] OpenNHP Linux SDK built successfully! -> $(CURDIR)/bin/sdk/nhp-agent.so$(RESET)\n"
 	@cd $(OPENNHP_DIR)/nhp && git restore go.mod go.sum 2>/dev/null || git checkout go.mod go.sum 2>/dev/null || true
 	@cd $(OPENNHP_DIR)/endpoints && git restore go.mod go.sum 2>/dev/null || git checkout go.mod go.sum 2>/dev/null || true
 	@cd $(OPENNHP_DIR) && git reset --hard HEAD 2>/dev/null || true
@@ -76,7 +77,7 @@ build-sdk-macos:
 		GOOS=darwin GOARCH=arm64 CGO_ENABLED=1 \
 		go build -a -trimpath -buildmode=c-shared -ldflags="-w -s" -v \
 		-o ../../../bin/sdk/nhp-agent.dylib ./agent/main/main.go ./agent/main/export.go
-	@printf "$(BLUE)[nhp-frp] OpenNHP macOS SDK built successfully!$(RESET)\n"
+	@printf "$(GREEN)[nhp-frp] OpenNHP macOS SDK built successfully! -> $(CURDIR)/bin/sdk/nhp-agent.dylib$(RESET)\n"
 	@cd $(OPENNHP_DIR)/nhp && git restore go.mod go.sum 2>/dev/null || git checkout go.mod go.sum 2>/dev/null || true
 	@cd $(OPENNHP_DIR)/endpoints && git restore go.mod go.sum 2>/dev/null || git checkout go.mod go.sum 2>/dev/null || true
 	@cd $(OPENNHP_DIR) && git reset --hard HEAD 2>/dev/null || true
@@ -92,7 +93,7 @@ frpc: build-sdk
 ifeq ($(OS_NAME), darwin)
 	install_name_tool -change nhp-agent.dylib ./bin/sdk/nhp-agent.dylib ./bin/nhp-frpc
 endif
-	@printf "$(BLUE)[nhp-frp] nhp-frpc built successfully!$(RESET)\n"
+	@printf "$(GREEN)[nhp-frp] nhp-frpc built successfully! -> $(CURDIR)/bin/nhp-frpc$(RESET)\n"
 
 clean:
 	rm -f ./bin/nhp-frpc

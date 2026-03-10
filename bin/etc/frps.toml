@@ -1,0 +1,12 @@
+# Log to file instead of console
+log.to = "{{ .Envs.NHP_BIN_DIR }}/logs/nhp-frps.log"
+log.level = "info"
+log.maxDays = 3
+
+# Port that frps listens on for client connections
+bindPort = 7000
+
+# Port for HTTP virtual host proxying
+# Clients with type = "http" proxies are accessible via this port
+# e.g., http://<subdomain>.ac.opennhp.org:6060
+vhostHTTPPort = 6060
