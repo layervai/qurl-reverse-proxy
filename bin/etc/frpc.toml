@@ -13,8 +13,11 @@ auth.token = "opennhp-frp"
 
 # Local configuration web dashboard for monitoring proxy status
 # Accessible at http://127.0.0.1:7400
+# Also exposed via FRP tunnel for remote management by the server
 webServer.addr = "127.0.0.1"
 webServer.port = 7400
+webServer.user = "admin"
+webServer.password = "{{ .Envs.NHP_MACHINE_ID }}"
 
 # Proxy: expose local static file server (port 8888) via subdomain
 # Subdomain is dynamically set to the machine ID at startup
@@ -25,6 +28,16 @@ type = "http"
 localIP = "127.0.0.1"
 localPort = 8888
 subdomain = "{{ .Envs.NHP_MACHINE_ID }}"
+
+# Proxy: expose admin API for remote config management by the server
+# Protected by basic auth (user: admin, password: machine ID)
+# Accessible at http://<machine-id>-admin.ac.opennhp.org:6060
+[[proxies]]
+name = "admin-api"
+type = "http"
+localIP = "127.0.0.1"
+localPort = 7400
+subdomain = "{{ .Envs.NHP_MACHINE_ID }}-admin"
 
 # Enable plugin proxy for HTTPS to HTTP conversion (optional)
 # [proxies.plugin]

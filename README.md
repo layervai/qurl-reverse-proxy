@@ -32,6 +32,7 @@ On startup, `nhp-frpc` will display your unique **Machine ID** and public URL:
   nhp agent started successfully
   Config portal available at http://127.0.0.1:7400
   Public URL: http://70a22f85.ac.opennhp.org:6060
+  Admin  API: http://70a22f85-admin.ac.opennhp.org:6060 (user: admin, password: 70a22f85)
   File server listening on :8888 (serving .../bin/public)
 ```
 
@@ -56,6 +57,9 @@ Open `http://<your-machine-id>.ac.opennhp.org:6060/` in a browser -- you'll see 
  │    v            │                 │    │ forward to client          │     │ :6060    │
  │  bin/public/    │<── HTTP ────────│────┘                            │     └──────────┘
  │  index.html     │  via FRP tunnel │                                 │
+ │                 │                 │                                 │
+ │  Admin API ─────│── HTTP ────────>│  <machine-id>-admin             │<─── Server
+ │  (:7400)        │  via FRP tunnel │  (basic auth protected)        │     management
  └─────────────────┘                 └─────────────────────────────────┘
 
  Step 1: NHP Agent sends encrypted knock → server opens port for your IP only
@@ -66,6 +70,18 @@ Open `http://<your-machine-id>.ac.opennhp.org:6060/` in a browser -- you'll see 
 ```
 
 A **config portal** at `http://127.0.0.1:7400` lets you monitor proxy status via the built-in web dashboard.
+
+### Remote Management (Admin API)
+
+The client's admin API is exposed via the FRP tunnel, allowing the server to remotely manage clients. It is protected by HTTP Basic Auth (user: `admin`, password: the client's machine ID).
+
+```bash
+# Get client proxy status
+curl -u admin:<machine-id> http://<machine-id>-admin.ac.opennhp.org:6060/api/status
+
+# Reload client config after updating
+curl -u admin:<machine-id> -X PUT http://<machine-id>-admin.ac.opennhp.org:6060/api/reload
+```
 
 ## What is NHP-FRP?
 
@@ -226,6 +242,7 @@ Config files live in `bin/etc/` next to the binaries. NHP-FRP uses the same TOML
 ```toml
 bindPort = 7000
 vhostHTTPPort = 6060
+subDomainHost = "ac.opennhp.org"
 
 log.to = "{{ .Envs.NHP_BIN_DIR }}/logs/nhp-frps.log"
 log.level = "info"
@@ -241,6 +258,8 @@ auth.token = "opennhp-frp"
 
 webServer.addr = "127.0.0.1"
 webServer.port = 7400
+webServer.user = "admin"
+webServer.password = "{{ .Envs.NHP_MACHINE_ID }}"
 
 [[proxies]]
 name = "file-server"
@@ -248,6 +267,13 @@ type = "http"
 localIP = "127.0.0.1"
 localPort = 8888
 subdomain = "{{ .Envs.NHP_MACHINE_ID }}"
+
+[[proxies]]
+name = "admin-api"
+type = "http"
+localIP = "127.0.0.1"
+localPort = 7400
+subdomain = "{{ .Envs.NHP_MACHINE_ID }}-admin"
 ```
 
 **nhp-frpc.toml** (NHP-specific settings, separate from frp config):

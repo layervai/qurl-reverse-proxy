@@ -104,7 +104,7 @@ func printConfigPortal(cfgFile string, machineID string) {
 		}
 	}
 
-	// Print public URL with machine ID subdomain (read from nhp-frpc.toml)
+	// Print public URL and admin API URL with machine ID subdomain (read from nhp-frpc.toml)
 	nhpCfgFile := filepath.Join(filepath.Dir(cfgFile), "nhp-frpc.toml")
 	if nhpData, err := os.ReadFile(nhpCfgFile); err == nil {
 		var nhpCfg map[string]interface{}
@@ -115,6 +115,7 @@ func printConfigPortal(cfgFile string, machineID string) {
 					portSuffix = fmt.Sprintf(":%d", p)
 				}
 				fmt.Printf("  %sPublic URL: http://%s.%s%s%s\n", colorGreen, machineID, subDomainHost, portSuffix, colorReset)
+				fmt.Printf("  %sAdmin  API: http://%s-admin.%s%s%s (user: admin, password: %s)\n", colorGreen, machineID, subDomainHost, portSuffix, colorReset, machineID)
 			}
 		}
 	}

@@ -32,6 +32,7 @@ bin\nhp-frpc.exe   # Windows
   nhp agent started successfully
   Config portal available at http://127.0.0.1:7400
   Public URL: http://70a22f85.ac.opennhp.org:6060
+  Admin  API: http://70a22f85-admin.ac.opennhp.org:6060 (user: admin, password: 70a22f85)
   File server listening on :8888 (serving .../bin/public)
 ```
 
@@ -56,6 +57,9 @@ bin\nhp-frpc.exe   # Windows
  │    v            │                 │    │ 转发到客户端               │     │  :6060   │
  │  bin/public/    │<── HTTP ────────│────┘                            │     └──────────┘
  │  index.html     │  经由 FRP 隧道  │                                 │
+ │                 │                 │                                 │
+ │  管理 API ──────│── HTTP ────────>│  <machine-id>-admin             │<─── 服务端
+ │  (:7400)        │  经由 FRP 隧道  │  （基本认证保护）               │     远程管理
  └─────────────────┘                 └─────────────────────────────────┘
 
  步骤 1：NHP Agent 发送加密敲门 → 服务器仅对你的 IP 开放端口
@@ -66,6 +70,18 @@ bin\nhp-frpc.exe   # Windows
 ```
 
 **配置面板** `http://127.0.0.1:7400` 可通过内置 Web 仪表板监控代理状态。
+
+### 远程管理（Admin API）
+
+客户端的管理 API 通过 FRP 隧道暴露，允许服务端远程管理客户端。接口通过 HTTP Basic Auth 保护（用户名：`admin`，密码：客户端的 Machine ID）。
+
+```bash
+# 获取客户端代理状态
+curl -u admin:<machine-id> http://<machine-id>-admin.ac.opennhp.org:6060/api/status
+
+# 更新配置后重载
+curl -u admin:<machine-id> -X PUT http://<machine-id>-admin.ac.opennhp.org:6060/api/reload
+```
 
 ## NHP-FRP 是什么？
 
@@ -226,6 +242,7 @@ build.bat help
 ```toml
 bindPort = 7000
 vhostHTTPPort = 6060
+subDomainHost = "ac.opennhp.org"
 
 log.to = "{{ .Envs.NHP_BIN_DIR }}/logs/nhp-frps.log"
 log.level = "info"
@@ -241,6 +258,8 @@ auth.token = "opennhp-frp"
 
 webServer.addr = "127.0.0.1"
 webServer.port = 7400
+webServer.user = "admin"
+webServer.password = "{{ .Envs.NHP_MACHINE_ID }}"
 
 [[proxies]]
 name = "file-server"
@@ -248,6 +267,13 @@ type = "http"
 localIP = "127.0.0.1"
 localPort = 8888
 subdomain = "{{ .Envs.NHP_MACHINE_ID }}"
+
+[[proxies]]
+name = "admin-api"
+type = "http"
+localIP = "127.0.0.1"
+localPort = 7400
+subdomain = "{{ .Envs.NHP_MACHINE_ID }}-admin"
 ```
 
 **nhp-frpc.toml**（NHP 专属配置，独立于 frp 配置）：
