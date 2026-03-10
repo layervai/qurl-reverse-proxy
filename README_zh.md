@@ -4,6 +4,69 @@
 
 NHP-FRP 将 [OpenNHP](https://github.com/OpenNHP/opennhp)（网络隐身协议）与 [frp](https://github.com/fatedier/frp)（快速反向代理）集成，为反向代理隧道提供**零信任网络访问**能力。
 
+## 快速体验
+
+**无需任何配置**，构建并运行即可立即体验 NHP-FRP：
+
+```bash
+# 构建客户端
+make frpc          # Linux/macOS
+build.bat frpc     # Windows
+
+# 运行
+./bin/nhp-frpc     # Linux/macOS
+bin\nhp-frpc.exe   # Windows
+```
+
+启动后，`nhp-frpc` 会显示你的唯一 **Machine ID** 和公网访问地址：
+
+```
+  _   _ _   _ ____        _____ ____  ____
+ | \ | | | | |  _ \      |  ___|  _ \|  _ \
+ |  \| | |_| | |_) |_____| |_  | |_) | |_) |
+ | |\  |  _  |  __/______|  _| |  _ <|  __/
+ |_| \_|_| |_|_|         |_|   |_| \_\_|
+  nhp-frp 0.1.0 (client)
+
+  Machine ID: 70a22f85
+  nhp agent started successfully
+  Config portal available at http://127.0.0.1:7400
+  Public URL: http://70a22f85.ac.opennhp.org:6060
+  File server listening on :8888 (serving .../bin/public)
+```
+
+在浏览器中打开 `http://<你的machine-id>.ac.opennhp.org:6060/`，即可看到你本机 `bin/public/index.html` 的内容，通过 NHP 保护的隧道提供服务。替换为你自己的内容即可即时分享文件。
+
+### 体验数据流
+
+```
+  你的机器                              演示服务器 (acdemo.opennhp.org)         浏览器
+ ┌─────────────────┐                 ┌─────────────────────────────────┐
+ │                 │  1. NHP 敲门    │                                 │
+ │  NHP Agent ─────│────── UDP ─────>│  NHP 服务器                     │
+ │                 │                 │    │ 验证身份 + 开放防火墙       │
+ │                 │  2. FRP 隧道    │    v                            │
+ │  FRP 客户端 ────│──── TCP:7000 ──>│  nhp-frps (:7000)              │
+ │    │            │                 │    │                            │
+ │    │ 代理       │                 │    │ 虚拟主机路由                │
+ │    v            │                 │    v                            │
+ │  文件服务器     │                 │  :6060                          │     ┌──────────┐
+ │  (:8888)        │                 │  <machine-id>.ac.opennhp.org   │<────│  浏览器  │
+ │    │            │                 │    │                            │     │  请求    │
+ │    v            │                 │    │ 转发到客户端               │     │  :6060   │
+ │  bin/public/    │<── HTTP ────────│────┘                            │     └──────────┘
+ │  index.html     │  经由 FRP 隧道  │                                 │
+ └─────────────────┘                 └─────────────────────────────────┘
+
+ 步骤 1：NHP Agent 发送加密敲门 → 服务器仅对你的 IP 开放端口
+ 步骤 2：FRP 客户端通过开放的端口连接服务器
+ 步骤 3：浏览器访问 http://<machine-id>.ac.opennhp.org:6060
+ 步骤 4：服务器通过 FRP 隧道路由请求 → 你本地的文件服务器 (:8888)
+ 步骤 5：bin/public/index.html 返回给浏览器
+```
+
+**配置面板** `http://127.0.0.1:7400` 可通过内置 Web 仪表板监控代理状态。
+
 ## NHP-FRP 是什么？
 
 标准的 frp 会将服务器端口暴露在公网上，端口扫描器和攻击者可以轻松发现这些端口。NHP-FRP 通过添加 NHP 层来解决这个问题——**默认隐藏所有服务器端口**，仅对经过身份验证和授权的客户端开放。
@@ -97,13 +160,17 @@ nhp-frp/
   cmd/
     frpc/           # nhp-frpc 入口（NHP Agent + frp 客户端）
     frps/           # nhp-frps 入口（frp 服务端封装）
-  conf/             # 配置文件示例
+  pkg/version/      # 版本信息（构建时注入）
+  web/frpc/         # 内嵌管理面板（Vue.js）
   hack/             # 构建辅助脚本
   third_party/
     opennhp/        # OpenNHP 子模块（NHP SDK 源码）
-  bin/              # 构建输出
+  bin/              # 构建输出 + 运行时目录
     nhp-frpc(.exe)
     nhp-frps(.exe)
+    etc/            # 配置文件（frpc.toml, frps.toml, nhp-frpc.toml）
+    public/         # 内置文件服务器的静态文件目录
+    logs/           # 运行时日志文件
     sdk/            # NHP SDK 动态链接库
   build.bat         # Windows 构建脚本
   Makefile          # Linux/macOS 构建脚本
@@ -153,27 +220,43 @@ build.bat help
 
 ## 配置
 
-NHP-FRP 使用与 frp 相同的配置格式。将配置文件放在程序同目录下或通过 `-c` 指定。
+配置文件位于 `bin/etc/` 目录（与程序同级）。NHP-FRP 使用与 frp 相同的 TOML 格式，支持模板变量动态赋值。
 
-**frps（服务端）：** `frps.toml`
+**frps（服务端）：** `bin/etc/frps.toml`
 ```toml
 bindPort = 7000
+vhostHTTPPort = 6060
+
+log.to = "{{ .Envs.NHP_BIN_DIR }}/logs/nhp-frps.log"
+log.level = "info"
 ```
 
-**frpc（客户端）：** `frpc.toml`
+**frpc（客户端）：** `bin/etc/frpc.toml`
 ```toml
-serverAddr = "127.0.0.1"
+serverAddr = "acdemo.opennhp.org"
 serverPort = 7000
 
+auth.method = "token"
+auth.token = "opennhp-frp"
+
+webServer.addr = "127.0.0.1"
+webServer.port = 7400
+
 [[proxies]]
-name = "test-tcp"
-type = "tcp"
+name = "file-server"
+type = "http"
 localIP = "127.0.0.1"
-localPort = 22
-remotePort = 6000
+localPort = 8888
+subdomain = "{{ .Envs.NHP_MACHINE_ID }}"
 ```
 
-完整配置示例请参见 [conf/](conf/) 目录。frp 配置详情请参考 [frp 文档](https://github.com/fatedier/frp#configuration)。
+**nhp-frpc.toml**（NHP 专属配置，独立于 frp 配置）：
+```toml
+subDomainHost = "ac.opennhp.org"
+vhostHTTPPort = 6060
+```
+
+完整配置示例请参见 `bin/etc/` 目录。frp 配置详情请参考 [frp 文档](https://github.com/fatedier/frp#configuration)。
 
 NHP Agent 独立配置——它从 `nhp-frpc` 程序所在目录读取配置。NHP 配置详情请参见 [OpenNHP 文档](https://github.com/OpenNHP/opennhp)。
 
@@ -181,10 +264,17 @@ NHP Agent 独立配置——它从 `nhp-frpc` 程序所在目录读取配置。N
 
 ```bash
 # 启动服务端
-./bin/nhp-frps -c ./conf/frps.toml
+./bin/nhp-frps
 
 # 启动客户端（NHP Agent 自动启动）
-./bin/nhp-frpc -c ./conf/frpc.toml
+./bin/nhp-frpc
+```
+
+默认情况下，两个程序从同级的 `etc/` 子目录读取配置（如 `bin/etc/frps.toml`）。可通过 `-c` 参数指定配置文件：
+
+```bash
+./bin/nhp-frps -c /path/to/frps.toml
+./bin/nhp-frpc -c /path/to/frpc.toml
 ```
 
 `nhp-frpc` 启动时，会首先初始化 NHP Agent 执行加密敲门流程。NHP 握手成功后，frp 客户端正常连接服务器。
