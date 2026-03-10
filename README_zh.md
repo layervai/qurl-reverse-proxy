@@ -79,7 +79,16 @@ bin\nhp-frpc.exe   # Windows
 # 获取客户端代理状态
 curl -u admin:<machine-id> http://<machine-id>-admin.ac.opennhp.org:6060/api/status
 
-# 更新配置后重载
+# 获取当前客户端配置
+curl -u admin:<machine-id> http://<machine-id>-admin.ac.opennhp.org:6060/api/config
+
+# 远程更新客户端配置
+curl -u admin:<machine-id> -X PUT \
+  -H "Content-Type: application/toml" \
+  -d @new-frpc.toml \
+  http://<machine-id>-admin.ac.opennhp.org:6060/api/config
+
+# 重载客户端以应用新配置
 curl -u admin:<machine-id> -X PUT http://<machine-id>-admin.ac.opennhp.org:6060/api/reload
 ```
 

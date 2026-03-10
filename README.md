@@ -79,7 +79,16 @@ The client's admin API is exposed via the FRP tunnel, allowing the server to rem
 # Get client proxy status
 curl -u admin:<machine-id> http://<machine-id>-admin.ac.opennhp.org:6060/api/status
 
-# Reload client config after updating
+# Get current client config
+curl -u admin:<machine-id> http://<machine-id>-admin.ac.opennhp.org:6060/api/config
+
+# Update client config remotely
+curl -u admin:<machine-id> -X PUT \
+  -H "Content-Type: application/toml" \
+  -d @new-frpc.toml \
+  http://<machine-id>-admin.ac.opennhp.org:6060/api/config
+
+# Reload client to apply new config
 curl -u admin:<machine-id> -X PUT http://<machine-id>-admin.ac.opennhp.org:6060/api/reload
 ```
 
