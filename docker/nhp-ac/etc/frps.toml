@@ -15,4 +15,6 @@ webServer.port = 7500
 webServer.user = "opennhp-frp"
 webServer.password = "opennhp-frp"
 
+enablePrometheus = true
+
 subDomainHost = "opennhp.online"

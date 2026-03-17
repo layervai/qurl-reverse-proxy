@@ -1,11 +1,28 @@
 [entryPoints]
   [entryPoints.web]
     address = ":80"
+  [entryPoints.metrics]
+    address = ":8082"
 
 [providers.file]
   filename = "provider.toml"
 
-[log]
-  level = "TRACE"
+[experimental.localPlugins.nhp-metrics]
+  moduleName = "github.com/layervai/qurl-reverse-proxy/traefik-plugin-metrics"
 
-  # Js147258!
+[metrics.prometheus]
+  addEntryPointsLabels = true
+  addServicesLabels = true
+  entryPoint = "metrics"
+  buckets = [0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0]
+
+[log]
+  level = "INFO"
+
+[accessLog]
+  filePath = "/opt/traefik/access.log"
+  format = "json"
+  [accessLog.fields]
+    defaultMode = "keep"
+    [accessLog.fields.headers]
+      defaultMode = "drop"
