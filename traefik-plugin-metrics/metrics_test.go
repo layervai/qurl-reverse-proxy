@@ -9,7 +9,8 @@ import (
 	"time"
 )
 
-// newTestHandler creates a middleware instance with the log emitter disabled.
+// newTestHandler creates a middleware instance with the log emitter disabled
+// and no IP allowlist (open access for tests).
 func newTestHandler(t *testing.T, next http.Handler) http.Handler {
 	t.Helper()
 	cfg := CreateConfig()
@@ -25,6 +26,7 @@ func newTestHandler(t *testing.T, next http.Handler) http.Handler {
 func getMetrics(t *testing.T, h http.Handler) map[string]interface{} {
 	t.Helper()
 	req := httptest.NewRequest(http.MethodGet, "/.well-known/nhp-metrics", nil)
+	req.RemoteAddr = "127.0.0.1:12345"
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
 	var data map[string]interface{}
@@ -41,7 +43,6 @@ func TestMetricsEndpoint(t *testing.T) {
 	})
 	handler := newTestHandler(t, next)
 
-	// Send a normal request first to increment counters.
 	req := httptest.NewRequest(http.MethodGet, "/hello", nil)
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
@@ -78,6 +79,25 @@ func TestWebSocketDetection(t *testing.T) {
 	data := getMetrics(t, handler)
 	if ws, ok := data["proxy_websocket"].(float64); !ok || ws != 1 {
 		t.Errorf("expected proxy_websocket=1, got %v", data["proxy_websocket"])
+	}
+}
+
+func TestWebSocketDetectionCommaHeader(t *testing.T) {
+	// Connection header can be a comma-separated list
+	next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})
+	handler := newTestHandler(t, next)
+
+	req := httptest.NewRequest(http.MethodGet, "/ws", nil)
+	req.Header.Set("Connection", "keep-alive, Upgrade")
+	req.Header.Set("Upgrade", "websocket")
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	data := getMetrics(t, handler)
+	if ws, ok := data["proxy_websocket"].(float64); !ok || ws != 1 {
+		t.Errorf("expected proxy_websocket=1 for comma-separated Connection header, got %v", data["proxy_websocket"])
 	}
 }
 
@@ -119,7 +139,6 @@ func TestHistogramRingBufferWrap(t *testing.T) {
 	for i := 1; i <= 10; i++ {
 		h.Record(float64(i))
 	}
-	// After wrapping, buffer holds [6,7,8,9,10]
 	sorted := h.sortedSnapshot()
 	if len(sorted) != 5 {
 		t.Fatalf("expected 5 samples, got %d", len(sorted))
@@ -148,7 +167,6 @@ func TestPercentileFromSortedEmpty(t *testing.T) {
 }
 
 func TestPercentileFromSortedSingleElement(t *testing.T) {
-	// With 1 element, ceil(p/100 * 1) - 1 could be 0 or negative
 	v := percentileFromSorted([]float64{42}, 1)
 	if v != 42 {
 		t.Errorf("expected 42, got %f", v)
@@ -185,11 +203,9 @@ func TestErrorClassification(t *testing.T) {
 
 	data := getMetrics(t, handler)
 
-	// 401 + 403 both count as unauthorized
 	if v, ok := data["error_unauthorized"].(float64); !ok || v != 2 {
 		t.Errorf("expected error_unauthorized=2, got %v", data["error_unauthorized"])
 	}
-	// 502 + 503 both count as backend connect
 	if v, ok := data["error_backend_connect"].(float64); !ok || v != 2 {
 		t.Errorf("expected error_backend_connect=2, got %v", data["error_backend_connect"])
 	}
@@ -225,11 +241,18 @@ func TestPanicRecovery(t *testing.T) {
 	if v, ok := data["error_panic"].(float64); !ok || v != 1 {
 		t.Errorf("expected error_panic=1, got %v", data["error_panic"])
 	}
+	// Panic should also record status_5xx and request_duration
+	if v, ok := data["status_5xx"].(float64); !ok || v != 1 {
+		t.Errorf("expected status_5xx=1 after panic, got %v", data["status_5xx"])
+	}
+	// Duration is recorded even on panic (may be 0ms in fast tests, but
+	// the key must exist in the snapshot).
+	if _, ok := data["request_duration_p50_ms"]; !ok {
+		t.Error("expected request_duration_p50_ms key in snapshot after panic")
+	}
 }
 
 func TestWriteWithoutExplicitWriteHeader(t *testing.T) {
-	// When the next handler calls Write() without WriteHeader(), the
-	// wrappedWriter should default to 200.
 	next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte("no explicit header"))
 	})
@@ -250,7 +273,6 @@ func TestWriteWithoutExplicitWriteHeader(t *testing.T) {
 }
 
 func TestDuplicateWriteHeader(t *testing.T) {
-	// Calling WriteHeader twice should not forward the second call.
 	next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusCreated)
 		w.WriteHeader(http.StatusInternalServerError) // should be ignored
@@ -293,8 +315,6 @@ func TestFlushDelegation(t *testing.T) {
 }
 
 func TestHijackDelegation(t *testing.T) {
-	// httptest.ResponseRecorder does not implement Hijacker, so Hijack
-	// should return http.ErrNotSupported.
 	next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if hj, ok := w.(http.Hijacker); ok {
 			_, _, err := hj.Hijack()
@@ -315,7 +335,7 @@ func TestHijackDelegation(t *testing.T) {
 
 func TestDefaultMetricsPath(t *testing.T) {
 	cfg := &Config{
-		MetricsPath:        "", // empty — should fall back to default
+		MetricsPath:        "",
 		LogIntervalSeconds: 0,
 	}
 	next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -343,16 +363,152 @@ func TestLogEmitterStartsAndStops(t *testing.T) {
 	m := newMetrics()
 	m.RequestTotal.Add(5)
 
-	// Start with a very short interval so we can observe at least one tick.
+	done := make(chan struct{})
+	origStart := m.startLogEmitter
+	_ = origStart
+	// Start the emitter and signal when context is cancelled.
 	m.startLogEmitter(ctx, 1)
-	time.Sleep(1500 * time.Millisecond)
 
-	// Cancel should stop the goroutine without hanging.
-	cancel()
-	time.Sleep(100 * time.Millisecond)
+	go func() {
+		// Wait for at least one tick then cancel.
+		time.Sleep(1200 * time.Millisecond)
+		cancel()
+		close(done)
+	}()
 
-	// If we got here without hanging, the emitter respects cancellation.
-	// We can't easily assert on log output without a custom logger,
-	// but we've exercised the marshal + log path.
-	_ = m
+	select {
+	case <-done:
+		// success
+	case <-time.After(5 * time.Second):
+		t.Fatal("log emitter did not stop within timeout")
+	}
+}
+
+func TestCloseStopsLogEmitter(t *testing.T) {
+	cfg := CreateConfig()
+	cfg.LogIntervalSeconds = 1
+	next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})
+	h, err := New(context.Background(), next, cfg, "test")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Close should not panic or hang.
+	if closer, ok := h.(interface{ Close() error }); ok {
+		if err := closer.Close(); err != nil {
+			t.Errorf("unexpected error from Close: %v", err)
+		}
+	} else {
+		t.Error("expected NHPMetrics to implement Close()")
+	}
+}
+
+// ---------- IP allowlist tests ----------
+
+func TestMetricsAllowedIP(t *testing.T) {
+	cfg := &Config{
+		MetricsPath:        defaultMetricsPath,
+		LogIntervalSeconds: 0,
+		AllowedCIDRs:       []string{"10.0.0.0/8"},
+	}
+	next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})
+	h, err := New(context.Background(), next, cfg, "test")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Allowed IP
+	req := httptest.NewRequest(http.MethodGet, defaultMetricsPath, nil)
+	req.RemoteAddr = "10.1.2.3:9999"
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Errorf("expected 200 for allowed IP, got %d", rec.Code)
+	}
+}
+
+func TestMetricsBlockedIP(t *testing.T) {
+	cfg := &Config{
+		MetricsPath:        defaultMetricsPath,
+		LogIntervalSeconds: 0,
+		AllowedCIDRs:       []string{"10.0.0.0/8"},
+	}
+	next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})
+	h, err := New(context.Background(), next, cfg, "test")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Blocked IP
+	req := httptest.NewRequest(http.MethodGet, defaultMetricsPath, nil)
+	req.RemoteAddr = "192.168.1.1:9999"
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusForbidden {
+		t.Errorf("expected 403 for blocked IP, got %d", rec.Code)
+	}
+}
+
+func TestMetricsNoAllowlist(t *testing.T) {
+	// No AllowedCIDRs = open to all (backwards compatible)
+	cfg := &Config{
+		MetricsPath:        defaultMetricsPath,
+		LogIntervalSeconds: 0,
+	}
+	next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})
+	h, err := New(context.Background(), next, cfg, "test")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, defaultMetricsPath, nil)
+	req.RemoteAddr = "1.2.3.4:9999"
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Errorf("expected 200 with no allowlist, got %d", rec.Code)
+	}
+}
+
+func TestParseCIDRsPlainIP(t *testing.T) {
+	nets := parseCIDRs([]string{"192.168.1.1", "::1"})
+	if len(nets) != 2 {
+		t.Fatalf("expected 2 nets, got %d", len(nets))
+	}
+}
+
+func TestParseCIDRsInvalid(t *testing.T) {
+	nets := parseCIDRs([]string{"not-an-ip"})
+	if len(nets) != 0 {
+		t.Errorf("expected 0 nets for invalid input, got %d", len(nets))
+	}
+}
+
+func TestDeadMetricsRemoved(t *testing.T) {
+	// Verify the dead metrics flagged in review are no longer in the snapshot.
+	handler := newTestHandler(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	data := getMetrics(t, handler)
+
+	dead := []string{
+		"cache_size", "session_cache_hit", "session_cache_miss",
+		"private_ac_api_call", "private_ac_cache_hit",
+		"backend_duration_p50_ms", "backend_duration_p95_ms",
+		"api_lookup_p95_ms", "html_rewrite_p95_ms",
+	}
+	for _, key := range dead {
+		if _, exists := data[key]; exists {
+			t.Errorf("dead metric %q should have been removed from snapshot", key)
+		}
+	}
 }

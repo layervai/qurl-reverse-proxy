@@ -25,8 +25,9 @@ const defaultMetricsPath = "/.well-known/nhp-metrics"
 
 // Config holds the plugin configuration set in provider.toml.
 type Config struct {
-	MetricsPath        string `json:"metricsPath"`
-	LogIntervalSeconds int    `json:"logIntervalSeconds"`
+	MetricsPath        string   `json:"metricsPath"`
+	LogIntervalSeconds int      `json:"logIntervalSeconds"`
+	AllowedCIDRs       []string `json:"allowedCIDRs"`
 }
 
 // CreateConfig populates a default Config.
@@ -40,7 +41,7 @@ func CreateConfig() *Config {
 // ---------- Ring-buffer histogram ----------
 
 // Histogram collects duration samples in a fixed-size ring buffer and
-// computes percentiles over the rolling window. Record() and Percentile()
+// computes percentiles over the rolling window. Record() and sortedSnapshot()
 // are both guarded by a mutex.
 type Histogram struct {
 	mu      sync.Mutex
@@ -104,9 +105,53 @@ func percentileFromSorted(sorted []float64, p float64) float64 {
 	return sorted[idx]
 }
 
+// ---------- CIDR allowlist ----------
+
+func parseCIDRs(cidrs []string) []*net.IPNet {
+	var nets []*net.IPNet
+	for _, cidr := range cidrs {
+		_, ipNet, err := net.ParseCIDR(cidr)
+		if err != nil {
+			// Try as plain IP by appending /32 or /128.
+			ip := net.ParseIP(cidr)
+			if ip == nil {
+				log.Printf("[nhp-metrics] invalid CIDR/IP in allowedCIDRs: %q", cidr)
+				continue
+			}
+			bits := 32
+			if ip.To4() == nil {
+				bits = 128
+			}
+			ipNet = &net.IPNet{IP: ip, Mask: net.CIDRMask(bits, bits)}
+		}
+		nets = append(nets, ipNet)
+	}
+	return nets
+}
+
+func isAllowed(remoteAddr string, allowedNets []*net.IPNet) bool {
+	if len(allowedNets) == 0 {
+		return true // no allowlist = allow all
+	}
+	host, _, err := net.SplitHostPort(remoteAddr)
+	if err != nil {
+		host = remoteAddr
+	}
+	ip := net.ParseIP(host)
+	if ip == nil {
+		return false
+	}
+	for _, n := range allowedNets {
+		if n.Contains(ip) {
+			return true
+		}
+	}
+	return false
+}
+
 // ---------- Metrics store ----------
 
-// Metrics holds all atomic counters and histograms.
+// Metrics holds all atomic counters and the request duration histogram.
 type Metrics struct {
 	// Request counters
 	RequestTotal    atomic.Int64
@@ -117,15 +162,6 @@ type Metrics struct {
 	ProxyStreaming   atomic.Int64
 	ProxyWebSocket  atomic.Int64
 	WebSocketActive atomic.Int64
-
-	// Cache counters
-	CacheSize        atomic.Int64
-	SessionCacheHit  atomic.Int64
-	SessionCacheMiss atomic.Int64
-
-	// AC (Access Controller) counters
-	PrivateACAPICall  atomic.Int64
-	PrivateACCacheHit atomic.Int64
 
 	// Error counters
 	ErrorBackendConnect atomic.Int64
@@ -139,30 +175,19 @@ type Metrics struct {
 	Status4xx atomic.Int64
 	Status5xx atomic.Int64
 
-	// Histograms (rolling window of 10 000 samples)
-	RequestDuration     *Histogram
-	BackendDuration     *Histogram
-	APILookupDuration   *Histogram
-	HTMLRewriteDuration *Histogram
+	// Histogram (rolling window of 10 000 samples)
+	RequestDuration *Histogram
 }
 
 func newMetrics() *Metrics {
 	return &Metrics{
-		RequestDuration:     newHistogram(10000),
-		BackendDuration:     newHistogram(10000),
-		APILookupDuration:   newHistogram(10000),
-		HTMLRewriteDuration: newHistogram(10000),
+		RequestDuration: newHistogram(10000),
 	}
 }
 
 // snapshot returns a JSON-serialisable map of all current values.
-// Each histogram is sorted once and all percentiles are read from that
-// single sorted copy.
 func (m *Metrics) snapshot() map[string]interface{} {
 	reqDur := m.RequestDuration.sortedSnapshot()
-	beDur := m.BackendDuration.sortedSnapshot()
-	apiDur := m.APILookupDuration.sortedSnapshot()
-	htmlDur := m.HTMLRewriteDuration.sortedSnapshot()
 
 	return map[string]interface{}{
 		"request_total":          m.RequestTotal.Load(),
@@ -171,11 +196,6 @@ func (m *Metrics) snapshot() map[string]interface{} {
 		"proxy_streaming":       m.ProxyStreaming.Load(),
 		"proxy_websocket":       m.ProxyWebSocket.Load(),
 		"websocket_active":      m.WebSocketActive.Load(),
-		"cache_size":            m.CacheSize.Load(),
-		"session_cache_hit":     m.SessionCacheHit.Load(),
-		"session_cache_miss":    m.SessionCacheMiss.Load(),
-		"private_ac_api_call":   m.PrivateACAPICall.Load(),
-		"private_ac_cache_hit":  m.PrivateACCacheHit.Load(),
 		"error_backend_connect": m.ErrorBackendConnect.Load(),
 		"error_backend_timeout": m.ErrorBackendTimeout.Load(),
 		"error_unauthorized":    m.ErrorUnauthorized.Load(),
@@ -187,10 +207,6 @@ func (m *Metrics) snapshot() map[string]interface{} {
 		"request_duration_p50_ms": percentileFromSorted(reqDur, 50),
 		"request_duration_p95_ms": percentileFromSorted(reqDur, 95),
 		"request_duration_p99_ms": percentileFromSorted(reqDur, 99),
-		"backend_duration_p50_ms": percentileFromSorted(beDur, 50),
-		"backend_duration_p95_ms": percentileFromSorted(beDur, 95),
-		"api_lookup_p95_ms":       percentileFromSorted(apiDur, 95),
-		"html_rewrite_p95_ms":     percentileFromSorted(htmlDur, 95),
 	}
 }
 
@@ -270,6 +286,7 @@ type NHPMetrics struct {
 	metricsPath string
 	metrics     *Metrics
 	cancel      context.CancelFunc
+	allowedNets []*net.IPNet
 }
 
 // New creates and returns a new NHPMetrics middleware instance.
@@ -290,12 +307,24 @@ func New(_ context.Context, next http.Handler, config *Config, name string) (htt
 		metricsPath: path,
 		metrics:     m,
 		cancel:      cancel,
+		allowedNets: parseCIDRs(config.AllowedCIDRs),
 	}, nil
 }
 
+// Close cancels the log emitter goroutine. Traefik calls this on config
+// reload when the old middleware instance is replaced.
+func (n *NHPMetrics) Close() error {
+	n.cancel()
+	return nil
+}
+
 func (n *NHPMetrics) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	// Serve JSON metrics endpoint
+	// Serve JSON metrics endpoint (gated by IP allowlist)
 	if r.URL.Path == n.metricsPath {
+		if !isAllowed(r.RemoteAddr, n.allowedNets) {
+			http.Error(w, "Forbidden", http.StatusForbidden)
+			return
+		}
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(n.metrics.snapshot())
 		return
@@ -320,40 +349,47 @@ func (n *NHPMetrics) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// Wrap response writer to capture status code
 	wrapped := &wrappedWriter{ResponseWriter: w, statusCode: http.StatusOK}
 
-	// Panic recovery
+	// Panic recovery — also records duration and status so counters stay
+	// consistent with request_total.
 	defer func() {
+		elapsed := float64(time.Since(start).Milliseconds())
+		n.metrics.RequestDuration.Record(elapsed)
+
 		if rec := recover(); rec != nil {
 			n.metrics.ErrorPanic.Add(1)
+			n.metrics.Status5xx.Add(1)
 			log.Printf("[nhp-metrics] panic recovered: %v", rec)
 			if !wrapped.written {
 				http.Error(w, "Internal Server Error", http.StatusInternalServerError)
 			}
+			return
 		}
+
+		// Bucket status codes (normal path)
+		n.recordStatusCode(wrapped.statusCode)
 	}()
 
 	n.next.ServeHTTP(wrapped, r)
+}
 
-	// Record duration
-	elapsed := float64(time.Since(start).Milliseconds())
-	n.metrics.RequestDuration.Record(elapsed)
-
-	// Bucket status codes
+// recordStatusCode increments the appropriate status and error counters.
+func (n *NHPMetrics) recordStatusCode(code int) {
 	switch {
-	case wrapped.statusCode >= 200 && wrapped.statusCode < 300:
+	case code >= 200 && code < 300:
 		n.metrics.Status2xx.Add(1)
-	case wrapped.statusCode >= 300 && wrapped.statusCode < 400:
+	case code >= 300 && code < 400:
 		n.metrics.Status3xx.Add(1)
-	case wrapped.statusCode >= 400 && wrapped.statusCode < 500:
+	case code >= 400 && code < 500:
 		n.metrics.Status4xx.Add(1)
-		if wrapped.statusCode == http.StatusUnauthorized || wrapped.statusCode == http.StatusForbidden {
+		if code == http.StatusUnauthorized || code == http.StatusForbidden {
 			n.metrics.ErrorUnauthorized.Add(1)
 		}
-	case wrapped.statusCode >= 500:
+	case code >= 500:
 		n.metrics.Status5xx.Add(1)
-		if wrapped.statusCode == http.StatusBadGateway || wrapped.statusCode == http.StatusServiceUnavailable {
+		if code == http.StatusBadGateway || code == http.StatusServiceUnavailable {
 			n.metrics.ErrorBackendConnect.Add(1)
 		}
-		if wrapped.statusCode == http.StatusGatewayTimeout {
+		if code == http.StatusGatewayTimeout {
 			n.metrics.ErrorBackendTimeout.Add(1)
 		}
 	}
@@ -362,8 +398,11 @@ func (n *NHPMetrics) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 // ---------- Helpers ----------
 
 func isWebSocketUpgrade(r *http.Request) bool {
-	return strings.EqualFold(r.Header.Get("Connection"), "upgrade") &&
-		strings.EqualFold(r.Header.Get("Upgrade"), "websocket")
+	conn := strings.ToLower(r.Header.Get("Connection"))
+	if !strings.Contains(conn, "upgrade") {
+		return false
+	}
+	return strings.EqualFold(r.Header.Get("Upgrade"), "websocket")
 }
 
 func isStreamingRequest(r *http.Request) bool {
