@@ -93,13 +93,23 @@ func TestHistogramPercentile(t *testing.T) {
 	for i := 1; i <= 100; i++ {
 		h.Record(float64(i))
 	}
-	p50 := h.Percentile(50)
+	sorted := h.sortedSnapshot()
+	p50 := percentileFromSorted(sorted, 50)
 	if p50 != 50 {
 		t.Errorf("expected p50=50, got %f", p50)
 	}
-	p99 := h.Percentile(99)
+	p99 := percentileFromSorted(sorted, 99)
 	if p99 != 99 {
 		t.Errorf("expected p99=99, got %f", p99)
+	}
+}
+
+func TestPercentileFromSortedEmpty(t *testing.T) {
+	if v := percentileFromSorted(nil, 50); v != 0 {
+		t.Errorf("expected 0 for nil slice, got %f", v)
+	}
+	if v := percentileFromSorted([]float64{}, 95); v != 0 {
+		t.Errorf("expected 0 for empty slice, got %f", v)
 	}
 }
 
