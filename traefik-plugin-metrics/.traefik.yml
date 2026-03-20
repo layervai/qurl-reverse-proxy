@@ -1,0 +1,8 @@
+displayName: NHP Metrics Plugin
+type: middleware
+
+summary: Application-level metrics for NHP reverse proxy via structured logs and JSON endpoint.
+
+testData:
+  metricsPath: "/.well-known/nhp-metrics"
+  logIntervalSeconds: 60
