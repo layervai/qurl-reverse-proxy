@@ -4,7 +4,9 @@ go 1.25.6
 
 require (
 	github.com/OpenNHP/opennhp/endpoints v0.0.0-20260118020651-91dcec886336
+	github.com/denisbrodbeck/machineid v1.0.1
 	github.com/fatedier/frp v0.67.0
+	github.com/pelletier/go-toml/v2 v2.2.4
 	github.com/spf13/cobra v1.10.2
 )
 
@@ -14,7 +16,7 @@ require (
 	github.com/armon/go-socks5 v0.0.0-20160902184237-e75332964ef5 // indirect
 	github.com/bahlo/generic-list-go v0.2.0 // indirect
 	github.com/beorn7/perks v1.0.1 // indirect
-	github.com/buger/jsonparser v1.1.1 // indirect
+	github.com/buger/jsonparser v1.1.2 // indirect
 	github.com/bytedance/gopkg v0.1.3 // indirect
 	github.com/bytedance/sonic v1.15.0 // indirect
 	github.com/bytedance/sonic/loader v0.5.0 // indirect
@@ -22,7 +24,6 @@ require (
 	github.com/cloudwego/base64x v0.1.6 // indirect
 	github.com/coocood/freecache v1.2.5 // indirect
 	github.com/coreos/go-oidc/v3 v3.17.0 // indirect
-	github.com/denisbrodbeck/machineid v1.0.1 // indirect
 	github.com/emmansun/gmsm v0.41.0 // indirect
 	github.com/fatedier/golib v0.5.1 // indirect
 	github.com/fsnotify/fsnotify v1.9.0 // indirect
@@ -50,7 +51,6 @@ require (
 	github.com/mattn/go-isatty v0.0.20 // indirect
 	github.com/modern-go/concurrent v0.0.0-20180306012644-bacd9c7ef1dd // indirect
 	github.com/modern-go/reflect2 v1.0.3-0.20250322232337-35a7c28c31ee // indirect
-	github.com/pelletier/go-toml/v2 v2.2.4 // indirect
 	github.com/pion/dtls/v2 v2.2.7 // indirect
 	github.com/pion/logging v0.2.4 // indirect
 	github.com/pion/stun/v2 v2.0.0 // indirect
