@@ -25,7 +25,7 @@ import (
 	"github.com/denisbrodbeck/machineid"
 	toml "github.com/pelletier/go-toml/v2"
 
-	"github.com/OpenNHP/nhp-frp/pkg/version"
+	"github.com/OpenNHP/nhp-frp/pkg/banner"
 	_ "github.com/OpenNHP/nhp-frp/web/frpc" // register embedded admin dashboard assets
 	"github.com/OpenNHP/opennhp/endpoints/agent"
 	"github.com/fatedier/frp/cmd/frpc/sub"
@@ -34,24 +34,11 @@ import (
 )
 
 const (
-	colorReset  = "\033[0m"
-	colorGreen  = "\033[32m"
-	colorYellow = "\033[33m"
-	colorCyan   = "\033[36m"
-	colorBold   = "\033[1m"
+	colorReset  = banner.ColorReset
+	colorGreen  = banner.ColorGreen
+	colorYellow = banner.ColorYellow
+	colorCyan   = banner.ColorCyan
 )
-
-func printBanner() {
-	banner := `
-  _   _ _   _ ____        _____ ____  ____
- | \ | | | | |  _ \      |  ___|  _ \|  _ \
- |  \| | |_| | |_) |_____| |_  | |_) | |_) |
- | |\  |  _  |  __/______|  _| |  _ <|  __/
- |_| \_|_| |_|_|         |_|   |_| \_\_|
-`
-	fmt.Printf("%s%s%s%s", colorBold, colorCyan, banner, colorReset)
-	fmt.Printf("  %s%s (client)%s\n\n", colorGreen, version.Short(), colorReset)
-}
 
 // getMachineID returns a short unique identifier for the current machine
 func getMachineID() string {
@@ -60,6 +47,16 @@ func getMachineID() string {
 		return "unknown"
 	}
 	return id[:8]
+}
+
+// hasConfigFlag returns true if -c or --config was passed on the command line.
+func hasConfigFlag() bool {
+	for _, arg := range os.Args {
+		if arg == "-c" || arg == "--config" {
+			return true
+		}
+	}
+	return false
 }
 
 // getConfigFile returns the config file path from -c flag or defaults to "<binary_dir>/etc/frpc.toml"
@@ -129,26 +126,25 @@ func nhpAgentStart(waitCh chan error) {
 	}
 	exeDirPath := filepath.Dir(exeFilePath)
 
-	a := &agent.UdpAgent{}
+	udpAgent := &agent.UdpAgent{}
 
-	err = a.Start(exeDirPath, 4)
+	err = udpAgent.Start(exeDirPath, 4)
 	if err != nil {
 		fmt.Printf("\n  %s❌ Failed to start agent:%s %v\n\n", colorYellow, colorReset, err)
 		waitCh <- err
 		return
 	}
 
-	a.StartKnockLoop()
-	// react to terminate signals
+	udpAgent.StartKnockLoop()
+
 	termCh := make(chan os.Signal, 1)
 	signal.Notify(termCh, syscall.SIGTERM, os.Interrupt, syscall.SIGABRT)
 
-	// block until terminated
 	waitCh <- nil
 	<-termCh
 
 	fmt.Printf("\n  %s🛑 Shutting down agent...%s\n", colorYellow, colorReset)
-	a.Stop()
+	udpAgent.Stop()
 	fmt.Printf("  %s✅ Agent stopped gracefully%s\n\n", colorGreen, colorReset)
 
 	// Exit the entire process since sub.Execute() doesn't handle signals
@@ -170,7 +166,7 @@ func startHTTPServer(publicDir string) {
 }
 
 func main() {
-	printBanner()
+	banner.Print("client")
 
 	// Set binary directory and machine ID for FRP config template
 	exeBinDir := "."
@@ -194,31 +190,19 @@ func main() {
 
 	fmt.Printf("  nhp agent started successfully\n")
 
-	// Print config portal URL from frpc config
-	if cfgFile := getConfigFile(); cfgFile != "" {
-		printConfigPortal(cfgFile, machineID)
+	// Resolve config file once and ensure FRP uses it
+	cfgFile := getConfigFile()
+	printConfigPortal(cfgFile, machineID)
+	if !hasConfigFlag() {
+		os.Args = append(os.Args, "-c", cfgFile)
 	}
 
 	// Start built-in HTTP server for static files
-	exePath, _ := os.Executable()
-	publicDir := filepath.Join(filepath.Dir(exePath), "public")
+	publicDir := filepath.Join(exeBinDir, "public")
 	if info, err := os.Stat(publicDir); err == nil && info.IsDir() {
 		startHTTPServer(publicDir)
 	} else {
 		fmt.Printf("  %sWarning: public directory not found at %s, HTTP server not started%s\n", colorYellow, publicDir, colorReset)
-	}
-
-	// Ensure FRP uses the same config file we resolved
-	cfgFile := getConfigFile()
-	hasCFlag := false
-	for _, arg := range os.Args {
-		if arg == "-c" || arg == "--config" {
-			hasCFlag = true
-			break
-		}
-	}
-	if !hasCFlag {
-		os.Args = append(os.Args, "-c", cfgFile)
 	}
 
 	system.EnableCompatibilityMode()
