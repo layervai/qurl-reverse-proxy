@@ -30,14 +30,8 @@ import (
 	"github.com/fatedier/frp/pkg/util/log"
 	"github.com/fatedier/frp/server"
 
+	"github.com/OpenNHP/nhp-frp/pkg/banner"
 	nhpversion "github.com/OpenNHP/nhp-frp/pkg/version"
-)
-
-const (
-	colorReset = "\033[0m"
-	colorGreen = "\033[32m"
-	colorCyan  = "\033[36m"
-	colorBold  = "\033[1m"
 )
 
 var (
@@ -48,18 +42,6 @@ var (
 
 	serverCfg v1.ServerConfig
 )
-
-func printBanner() {
-	banner := `
-  _   _ _   _ ____        _____ ____  ____
- | \ | | | | |  _ \      |  ___|  _ \|  _ \
- |  \| | |_| | |_) |_____| |_  | |_) | |_) |
- | |\  |  _  |  __/______|  _| |  _ <|  __/
- |_| \_|_| |_|_|         |_|   |_| \_\_|
-`
-	fmt.Printf("%s%s%s%s", colorBold, colorCyan, banner, colorReset)
-	fmt.Printf("  %s%s (server)%s\n\n", colorGreen, nhpversion.Short(), colorReset)
-}
 
 func init() {
 	rootCmd.PersistentFlags().StringVarP(&cfgFile, "config", "c", "", "config file of frps")
@@ -75,7 +57,7 @@ var rootCmd = &cobra.Command{
 	Use:   "nhp-frps",
 	Short: "nhp-frps is the server of nhp-frp (https://github.com/OpenNHP/nhp-frp)",
 	RunE: func(cmd *cobra.Command, args []string) error {
-		printBanner()
+		banner.Print("server")
 
 		if showVersion {
 			fmt.Println(nhpversion.Full())
@@ -145,7 +127,7 @@ func Execute() {
 	}
 }
 
-func runServer(cfg *v1.ServerConfig) (err error) {
+func runServer(cfg *v1.ServerConfig) error {
 	log.InitLogger(cfg.Log.To, cfg.Log.Level, int(cfg.Log.MaxDays), cfg.Log.DisablePrintColor)
 
 	if cfgFile != "" {
@@ -160,5 +142,5 @@ func runServer(cfg *v1.ServerConfig) (err error) {
 	}
 	log.Infof("frps started successfully")
 	svr.Run(context.Background())
-	return
+	return nil
 }
