@@ -6,6 +6,8 @@ import http from 'http';
 
 const ADMIN_PORT = 7400;
 const ADMIN_HOST = '127.0.0.1';
+const CONFIG_DIR = path.join(os.homedir(), '.config', 'qurl');
+const CONFIG_PATH = path.join(CONFIG_DIR, 'qurl-proxy.yaml');
 
 interface SidecarStatus {
   running: boolean;
@@ -16,13 +18,11 @@ interface SidecarStatus {
 export class SidecarManager {
   private process: ChildProcess | null = null;
   private binaryPath: string;
-  private configPath: string;
   private startedAt: number | null = null;
   private logs: string[] = [];
 
   constructor(binaryPath?: string) {
     this.binaryPath = binaryPath ?? this.resolveBinaryPath();
-    this.configPath = path.join(os.homedir(), '.qurl', 'frpc.toml');
   }
 
   private resolveBinaryPath(): string {
@@ -34,16 +34,28 @@ export class SidecarManager {
       if (fs.existsSync(bundled)) return bundled;
     }
 
-    // 2. Adjacent to the app (development)
+    // 2. Project root bin/ (development — cwd is desktop/)
+    const parentAdj = path.join(process.cwd(), '..', 'bin', binaryName);
+    if (fs.existsSync(parentAdj)) return parentAdj;
+
+    // 3. Adjacent bin/ (development — cwd is project root)
     const adjacent = path.join(process.cwd(), 'bin', binaryName);
     if (fs.existsSync(adjacent)) return adjacent;
 
-    // 3. In ~/.qurl/bin/
+    // 4. In ~/.qurl/bin/
     const home = path.join(os.homedir(), '.qurl', 'bin', binaryName);
     if (fs.existsSync(home)) return home;
 
-    // 4. Fall back to PATH lookup
+    // 5. Fall back to PATH lookup
     return binaryName;
+  }
+
+  getBinaryPath(): string {
+    return this.binaryPath;
+  }
+
+  getConfigPath(): string {
+    return CONFIG_PATH;
   }
 
   async start(): Promise<void> {
@@ -51,20 +63,39 @@ export class SidecarManager {
       throw new Error('Sidecar is already running');
     }
 
-    const args = ['run', '--config', this.configPath];
-
-    // Ensure config directory exists
-    const configDir = path.dirname(this.configPath);
-    if (!fs.existsSync(configDir)) {
-      fs.mkdirSync(configDir, { recursive: true });
+    // Verify binary exists
+    if (!fs.existsSync(this.binaryPath)) {
+      throw new Error(
+        `qurl-frpc not found at: ${this.binaryPath}\n` +
+        'Build it with "make frpc" from the project root.'
+      );
     }
 
-    // Write a default config if none exists
-    if (!fs.existsSync(this.configPath)) {
+    // Ensure config directory and file exist
+    if (!fs.existsSync(CONFIG_DIR)) {
+      fs.mkdirSync(CONFIG_DIR, { recursive: true });
+    }
+    if (!fs.existsSync(CONFIG_PATH)) {
       this.writeDefaultConfig();
     }
 
+    // Check that config has routes
+    const configContent = fs.readFileSync(CONFIG_PATH, 'utf-8');
+    if (!configContent.includes('routes:') || !configContent.includes('- name:')) {
+      throw new Error(
+        'No services configured. Add a service first:\n' +
+        '  qurl-frpc add --target http://localhost:8080 --name "My App"'
+      );
+    }
+
+    const args = ['run', '--config', CONFIG_PATH];
+
     return new Promise((resolve, reject) => {
+      let settled = false;
+      const settle = (fn: () => void) => {
+        if (!settled) { settled = true; fn(); }
+      };
+
       try {
         this.process = spawn(this.binaryPath, args, {
           stdio: ['ignore', 'pipe', 'pipe'],
@@ -93,25 +124,32 @@ export class SidecarManager {
         this.process.on('error', (err) => {
           this.process = null;
           this.startedAt = null;
-          reject(new Error(`Failed to start sidecar: ${err.message}`));
+          settle(() => reject(new Error(`Failed to start: ${err.message}`)));
         });
 
         this.process.on('exit', (code) => {
           this.process = null;
           this.startedAt = null;
           if (code !== 0 && code !== null) {
-            this.logs.push(`[exit] Process exited with code ${code}`);
+            const lastLogs = this.logs.slice(-5).join('\n');
+            settle(() => reject(new Error(
+              `qurl-frpc exited with code ${code}${lastLogs ? '\n' + lastLogs : ''}`
+            )));
           }
         });
 
-        // Give it a moment to start or fail
+        // If still running after 1.5s, consider it started
         setTimeout(() => {
-          if (this.process && !this.process.killed) {
-            resolve();
-          }
-        }, 500);
+          settle(() => {
+            if (this.process && !this.process.killed) {
+              resolve();
+            } else {
+              reject(new Error('qurl-frpc exited immediately'));
+            }
+          });
+        }, 1500);
       } catch (err) {
-        reject(err);
+        settle(() => reject(err));
       }
     });
   }
@@ -125,11 +163,8 @@ export class SidecarManager {
 
     return new Promise((resolve) => {
       const proc = this.process!;
-
       const forceKillTimer = setTimeout(() => {
-        if (!proc.killed) {
-          proc.kill('SIGKILL');
-        }
+        if (!proc.killed) proc.kill('SIGKILL');
         this.process = null;
         this.startedAt = null;
         resolve();
@@ -169,12 +204,8 @@ export class SidecarManager {
     return this.adminRequest('GET', '/api/status');
   }
 
-  async pushConfig(config: string): Promise<void> {
-    await this.adminRequest('PUT', '/api/config', config);
-  }
-
   async reload(): Promise<void> {
-    await this.adminRequest('PUT', '/api/reload');
+    await this.adminRequest('GET', '/api/reload');
   }
 
   private adminRequest(method: string, endpoint: string, body?: string): Promise<unknown> {
@@ -185,50 +216,44 @@ export class SidecarManager {
           port: ADMIN_PORT,
           path: endpoint,
           method,
+          auth: 'admin:admin',
           headers: body ? { 'Content-Type': 'application/json' } : undefined,
           timeout: 5000,
         },
         (res) => {
           let data = '';
-          res.on('data', (chunk: Buffer) => {
-            data += chunk.toString();
-          });
+          res.on('data', (chunk: Buffer) => { data += chunk.toString(); });
           res.on('end', () => {
-            try {
-              resolve(data ? JSON.parse(data) : null);
-            } catch {
-              resolve(data);
-            }
+            try { resolve(data ? JSON.parse(data) : null); }
+            catch { resolve(data); }
           });
         },
       );
-
-      req.on('error', (err) => {
-        reject(new Error(`Admin API request failed: ${err.message}`));
-      });
-
-      req.on('timeout', () => {
-        req.destroy();
-        reject(new Error('Admin API request timed out'));
-      });
-
+      req.on('error', (err) => reject(new Error(`Admin API: ${err.message}`)));
+      req.on('timeout', () => { req.destroy(); reject(new Error('Admin API timeout')); });
       if (body) req.write(body);
       req.end();
     });
   }
 
   private writeDefaultConfig(): void {
-    const config = `# qurl-frpc default configuration
-# See https://docs.layerv.ai/qurl/reverse-proxy for details
+    const yaml = `# QURL Reverse Proxy configuration
+# Docs: https://docs.layerv.ai/qurl/reverse-proxy
 
-serverAddr = "0.0.0.0"
-serverPort = 7000
+server:
+  addr: acdemo.opennhp.org
+  port: 7000
+  token: opennhp-frp
 
-webServer.addr = "127.0.0.1"
-webServer.port = ${ADMIN_PORT}
+nhp:
+  enabled: false
 
-# Proxies are configured dynamically via the admin API
+qurl:
+  api_url: https://api.layerv.ai/v1
+
+routes: []
+# Add services with: qurl-frpc add --target http://localhost:8080 --name "My App"
 `;
-    fs.writeFileSync(this.configPath, config, 'utf-8');
+    fs.writeFileSync(CONFIG_PATH, yaml, 'utf-8');
   }
 }

@@ -7,14 +7,13 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
-	"strings"
 	"syscall"
 	"time"
 
 	"github.com/denisbrodbeck/machineid"
-	toml "github.com/pelletier/go-toml/v2"
 	"github.com/spf13/cobra"
 
+	"github.com/layervai/qurl-reverse-proxy/pkg/config"
 	"github.com/layervai/qurl-reverse-proxy/pkg/version"
 	"github.com/OpenNHP/opennhp/endpoints/agent"
 	"github.com/fatedier/frp/client"
@@ -26,7 +25,6 @@ import (
 	"github.com/fatedier/frp/pkg/util/log"
 )
 
-// ANSI color codes used for terminal output.
 const (
 	colorReset  = "\033[0m"
 	colorGreen  = "\033[32m"
@@ -54,73 +52,114 @@ func init() {
 func runCmdFunc(cmd *cobra.Command, args []string) error {
 	printBanner()
 
-	// Resolve binary directory and machine ID for FRP config templates.
 	exeBinDir := "."
 	if ep, err := os.Executable(); err == nil {
 		exeBinDir = filepath.ToSlash(filepath.Dir(ep))
 	}
 	machineID := getMachineID()
 
-	// Inject into FRP's cached env map (populated at init time, before os.Setenv).
-	frpconfig.GetValues().Envs["NHP_MACHINE_ID"] = machineID
-	frpconfig.GetValues().Envs["NHP_BIN_DIR"] = exeBinDir
+	// Inject into FRP's env map for legacy TOML template support.
+	frpconfig.GetValues().Envs["QURL_MACHINE_ID"] = machineID
+	frpconfig.GetValues().Envs["QURL_BIN_DIR"] = exeBinDir
 	fmt.Printf("  Machine ID: %s%s%s\n", colorCyan, machineID, colorReset)
 
-	// Start NHP agent.
-	waitCh := make(chan error)
-	go nhpAgentStart(waitCh)
-	if err := <-waitCh; err != nil {
-		fmt.Printf("nhp agent start error: %v\n", err)
-		os.Exit(1)
-	}
-	fmt.Printf("  nhp agent started successfully\n")
-
-	// Resolve config file: --config flag takes priority, then default discovery.
-	cfgPath := getConfigFile()
-
-	// Print config portal URL.
-	if cfgPath != "" {
-		printConfigPortal(cfgPath, machineID)
-	}
-
-	// Start built-in HTTP file server if a public/ directory exists.
-	exePath, _ := os.Executable()
-	publicDir := filepath.Join(filepath.Dir(exePath), "public")
-	if info, err := os.Stat(publicDir); err == nil && info.IsDir() {
-		startHTTPServer(publicDir)
+	// Start NHP agent only if its config exists (optional for basic tunnel mode).
+	nhpConfigPath := filepath.Join(exeBinDir, "etc", "config.toml")
+	if _, err := os.Stat(nhpConfigPath); err == nil {
+		waitCh := make(chan error)
+		go nhpAgentStart(waitCh)
+		if err := <-waitCh; err != nil {
+			fmt.Printf("  %sNHP agent failed (continuing without NHP): %v%s\n", colorYellow, err, colorReset)
+		} else {
+			fmt.Printf("  NHP agent started successfully\n")
+		}
 	} else {
-		fmt.Printf("  %sWarning: public directory not found at %s, HTTP server not started%s\n", colorYellow, publicDir, colorReset)
+		fmt.Printf("  %sNHP agent skipped (no config at %s)%s\n", colorYellow, nhpConfigPath, colorReset)
 	}
 
-	// Determine config type and start FRP accordingly.
-	if cfgPath != "" && isYAMLConfig(cfgPath) {
-		return startFRPFromYAML(cfgPath)
-	}
-	return startFRPLegacy(cfgPath)
-}
-
-// isYAMLConfig returns true if the config file has a YAML extension.
-func isYAMLConfig(path string) bool {
-	ext := strings.ToLower(filepath.Ext(path))
-	return ext == ".yaml" || ext == ".yml"
-}
-
-// startFRPFromYAML loads a YAML config and starts the FRP client service directly.
-func startFRPFromYAML(cfgPath string) error {
-	cfg, proxyCfgs, visitorCfgs, _, err := frpconfig.LoadClientConfig(cfgPath, strictConfigMode)
+	// Discover config: --config flag > qurl-proxy.yaml > legacy frpc.toml
+	cfgPath, isLegacy, err := config.Discover(cfgFile)
 	if err != nil {
-		return fmt.Errorf("failed to load YAML config: %w", err)
+		// No config found anywhere — check for legacy default path
+		legacyPath := filepath.Join(exeBinDir, "etc", "frpc.toml")
+		if _, statErr := os.Stat(legacyPath); statErr == nil {
+			cfgPath = legacyPath
+			isLegacy = true
+		} else {
+			return fmt.Errorf("no config found. Create qurl-proxy.yaml or use --config flag.\nRun 'qurl-frpc add --target http://localhost:8080 --name myapp' to get started.")
+		}
 	}
 
-	warning, err := validation.ValidateAllClientConfig(cfg, proxyCfgs, visitorCfgs, nil)
+	fmt.Printf("  Config: %s%s%s\n", colorCyan, cfgPath, colorReset)
+
+	// Legacy TOML path — delegate to FRP's own Cobra command
+	if isLegacy {
+		return startFRPLegacy(cfgPath)
+	}
+
+	// YAML config path — load, generate FRP config, start directly
+	return startFRPFromYAML(cfgPath, machineID)
+}
+
+// startFRPFromYAML loads the QURL YAML config, generates FRP types, and starts the client.
+func startFRPFromYAML(cfgPath string, machineID string) error {
+	cfg, err := config.Load(cfgPath)
+	if err != nil {
+		return fmt.Errorf("loading config: %w", err)
+	}
+
+	if cfg.Server.Addr == "" {
+		return fmt.Errorf("server.addr not configured in %s. Set the QURL proxy server address.", cfgPath)
+	}
+
+	if len(cfg.Routes) == 0 {
+		return fmt.Errorf("no routes configured. Run 'qurl-frpc add' to register services first.")
+	}
+
+	// Generate FRP client config from YAML routes
+	common, proxyCfgs, visitorCfgs, err := config.GenerateFRPClientConfig(cfg, machineID)
+	if err != nil {
+		return fmt.Errorf("generating FRP config: %w", err)
+	}
+
+	// Enable the admin web server for hot-reload support
+	common.WebServer.Addr = "127.0.0.1"
+	common.WebServer.Port = 7400
+	common.WebServer.User = "admin"
+	common.WebServer.Password = machineID
+
+	// Set auth
+	if cfg.Server.Token != "" {
+		common.Auth.Method = v1.AuthMethod("token")
+		common.Auth.Token = cfg.Server.Token
+	}
+
+	// Set log level
+	common.Log.Level = logLevel
+
+	// Complete config defaults (required before FRP validation)
+	if err := common.Complete(); err != nil {
+		return fmt.Errorf("completing config: %w", err)
+	}
+	for _, pc := range proxyCfgs {
+		pc.Complete(common.Auth.Token)
+	}
+	warning, valErr := validation.ValidateAllClientConfig(common, proxyCfgs, visitorCfgs, nil)
 	if warning != nil {
-		fmt.Printf("WARNING: %v\n", warning)
+		fmt.Printf("  %sWarning: %v%s\n", colorYellow, warning, colorReset)
 	}
-	if err != nil {
-		return fmt.Errorf("config validation failed: %w", err)
+	if valErr != nil {
+		return fmt.Errorf("config validation: %w", valErr)
 	}
 
-	return startService(cfg, proxyCfgs, visitorCfgs, cfgPath)
+	fmt.Printf("  %s%d route(s) configured%s\n", colorGreen, len(cfg.Routes), colorReset)
+	for _, r := range cfg.Routes {
+		target := fmt.Sprintf("%s:%d", r.LocalIP, r.LocalPort)
+		fmt.Printf("    %s → %s (%s)%s\n", colorCyan, target, r.Name, colorReset)
+	}
+	fmt.Printf("  %sAdmin API at http://127.0.0.1:7400%s\n\n", colorGreen, colorReset)
+
+	return startService(common, proxyCfgs, visitorCfgs, cfgPath)
 }
 
 // startService creates and runs the FRP client service.
@@ -155,7 +194,6 @@ func startService(
 	return svr.Run(context.Background())
 }
 
-// handleTermSignal waits for SIGINT/SIGTERM and gracefully shuts down the FRP client.
 func handleTermSignal(svr *client.Service) {
 	ch := make(chan os.Signal, 1)
 	signal.Notify(ch, syscall.SIGINT, syscall.SIGTERM)
@@ -163,101 +201,42 @@ func handleTermSignal(svr *client.Service) {
 	svr.GracefulClose(500 * time.Millisecond)
 }
 
-// startFRPLegacy injects env vars and delegates to FRP's built-in sub.Execute for TOML configs.
+// startFRPLegacy delegates to FRP's built-in Cobra for legacy TOML configs.
 func startFRPLegacy(cfgPath string) error {
-	// Ensure FRP sees the resolved config path via its -c flag.
-	hasCFlag := false
-	for _, arg := range os.Args {
-		if arg == "-c" || arg == "--config" {
-			hasCFlag = true
-			break
-		}
-	}
-	if !hasCFlag && cfgPath != "" {
-		os.Args = append(os.Args, "-c", cfgPath)
-	}
-
+	os.Args = []string{os.Args[0], "-c", cfgPath}
 	sub.Execute()
 	return nil
 }
 
 func printBanner() {
 	banner := `
-  _   _ _   _ ____        _____ ____  ____
- | \ | | | | |  _ \      |  ___|  _ \|  _ \
- |  \| | |_| | |_) |_____|  _| | |_) | |_) |
- | |\  |  _  |  __/______|  _| |  _ <|  __/
- |_| \_|_| |_|_|         |_|   |_| \_\_|
+   ___  _   _ ____  _
+  / _ \| | | |  _ \| |
+ | | | | | | | |_) | |
+ | |_| | |_| |  _ <| |___
+  \__\_\\___/|_| \_\_____|  Reverse Proxy
 `
 	fmt.Printf("%s%s%s%s", colorBold, colorCyan, banner, colorReset)
 	fmt.Printf("  %s%s (client)%s\n\n", colorGreen, version.Short(), colorReset)
 }
 
-// getMachineID returns a short unique identifier for the current machine.
 func getMachineID() string {
-	id, err := machineid.ProtectedID("nhp-frp")
+	id, err := machineid.ProtectedID("qurl-frp")
 	if err != nil {
 		return "unknown"
 	}
 	return id[:8]
 }
 
-// getConfigFile resolves the config file path. The --config flag takes priority,
-// otherwise it falls back to <binary_dir>/etc/frpc.toml.
 func getConfigFile() string {
 	if cfgFile != "" {
 		return cfgFile
 	}
 	exePath, err := os.Executable()
 	if err != nil {
-		return "./frpc.toml"
+		return ""
 	}
 	return filepath.Join(filepath.Dir(exePath), "etc", "frpc.toml")
-}
-
-// printConfigPortal reads the webServer settings from config and prints the portal URL.
-func printConfigPortal(cfgPath string, machineID string) {
-	data, err := os.ReadFile(cfgPath)
-	if err != nil {
-		return
-	}
-
-	// Use a permissive map to avoid template syntax errors in TOML parsing.
-	var raw map[string]interface{}
-	if err := toml.Unmarshal(data, &raw); err != nil {
-		return
-	}
-
-	// Print config portal URL.
-	if ws, ok := raw["webServer"].(map[string]interface{}); ok {
-		addr, _ := ws["addr"].(string)
-		if addr == "" || addr == "0.0.0.0" {
-			addr = "127.0.0.1"
-		}
-		var port int64
-		if p, ok := ws["port"].(int64); ok {
-			port = p
-		}
-		if port > 0 {
-			fmt.Printf("  %sConfig portal available at http://%s:%d%s\n", colorGreen, addr, port, colorReset)
-		}
-	}
-
-	// Print public URL and admin API URL with machine ID subdomain (read from nhp-frpc.toml).
-	nhpCfgFile := filepath.Join(filepath.Dir(cfgPath), "nhp-frpc.toml")
-	if nhpData, err := os.ReadFile(nhpCfgFile); err == nil {
-		var nhpCfg map[string]interface{}
-		if err := toml.Unmarshal(nhpData, &nhpCfg); err == nil {
-			if subDomainHost, ok := nhpCfg["subDomainHost"].(string); ok && subDomainHost != "" && machineID != "unknown" {
-				portSuffix := ""
-				if p, ok := nhpCfg["vhostHTTPPort"].(int64); ok && p != 0 && p != 80 {
-					portSuffix = fmt.Sprintf(":%d", p)
-				}
-				fmt.Printf("  %sPublic URL: http://%s.%s%s%s\n", colorGreen, machineID, subDomainHost, portSuffix, colorReset)
-				fmt.Printf("  %sAdmin  API: http://%s-admin.%s%s%s (user: admin, password: %s)\n", colorGreen, machineID, subDomainHost, portSuffix, colorReset, machineID)
-			}
-		}
-	}
 }
 
 func nhpAgentStart(waitCh chan error) {
@@ -269,28 +248,20 @@ func nhpAgentStart(waitCh chan error) {
 	exeDirPath := filepath.Dir(exeFilePath)
 
 	a := &agent.UdpAgent{}
-
 	err = a.Start(exeDirPath, 4)
 	if err != nil {
-		fmt.Printf("\n  %s❌ Failed to start agent:%s %v\n\n", colorYellow, colorReset, err)
 		waitCh <- err
 		return
 	}
 
 	a.StartKnockLoop()
-	// React to terminate signals.
 	termCh := make(chan os.Signal, 1)
 	signal.Notify(termCh, syscall.SIGTERM, os.Interrupt, syscall.SIGABRT)
 
-	// Block until terminated.
 	waitCh <- nil
 	<-termCh
 
-	fmt.Printf("\n  %s🛑 Shutting down agent...%s\n", colorYellow, colorReset)
 	a.Stop()
-	fmt.Printf("  %s✅ Agent stopped gracefully%s\n\n", colorGreen, colorReset)
-
-	// Exit the entire process since sub.Execute() doesn't handle signals.
 	os.Exit(0)
 }
 

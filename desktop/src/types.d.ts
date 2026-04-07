@@ -1,12 +1,23 @@
+interface IpcResult {
+  success: boolean;
+  error?: string;
+}
+
+interface AuthStatus {
+  signedIn: boolean;
+  email: string | null;
+  environment: string;
+}
+
+interface AuthSignInResult extends IpcResult {
+  email?: string;
+  environment?: string;
+}
+
 interface SidecarStatus {
   running: boolean;
   pid: number | null;
   uptime: number | null;
-}
-
-interface IpcResult {
-  success: boolean;
-  error?: string;
 }
 
 interface ShareInfo {
@@ -25,11 +36,30 @@ interface ShareResult extends IpcResult {
   };
 }
 
+interface TunnelService {
+  name: string;
+  type: 'http' | 'tcp' | 'ssh';
+  target: string;
+  localPort: number;
+  subdomain?: string;
+  status: 'connected' | 'disconnected' | 'error';
+}
+
 interface QUrlBridge {
+  auth: {
+    signIn: () => Promise<AuthSignInResult>;
+    signOut: () => Promise<IpcResult>;
+    status: () => Promise<AuthStatus>;
+  };
   sidecar: {
     start: () => Promise<IpcResult>;
     stop: () => Promise<IpcResult>;
     status: () => Promise<SidecarStatus>;
+  };
+  tunnels: {
+    list: () => Promise<TunnelService[]>;
+    add: (target: string, name: string) => Promise<IpcResult & { tunnel?: TunnelService }>;
+    remove: (name: string) => Promise<IpcResult>;
   };
   share: {
     file: (filePath: string, name: string) => Promise<ShareResult>;

@@ -11,36 +11,36 @@ const EXPIRY_OPTIONS = [
 ];
 
 export function Settings() {
-  const [token, setToken] = useState('');
-  const [tokenVisible, setTokenVisible] = useState(false);
   const [defaultExpiry, setDefaultExpiry] = useState(60);
   const [autoStart, setAutoStart] = useState(false);
   const [sidecarRunning, setSidecarRunning] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [isSignedIn] = useState(false);
 
   useEffect(() => {
-    // Load settings from localStorage
-    const savedToken = localStorage.getItem('qurl:token') || '';
     const savedExpiry = localStorage.getItem('qurl:defaultExpiry');
     const savedAutoStart = localStorage.getItem('qurl:autoStart');
 
-    setToken(savedToken);
     if (savedExpiry) setDefaultExpiry(parseInt(savedExpiry, 10));
     if (savedAutoStart) setAutoStart(savedAutoStart === 'true');
 
-    // Check sidecar status
     window.qurl.sidecar.status().then((status) => {
       setSidecarRunning(status.running);
     });
   }, []);
 
   const handleSave = useCallback(() => {
-    localStorage.setItem('qurl:token', token);
     localStorage.setItem('qurl:defaultExpiry', String(defaultExpiry));
     localStorage.setItem('qurl:autoStart', String(autoStart));
     setSaved(true);
     setTimeout(() => setSaved(false), 2000);
-  }, [token, defaultExpiry, autoStart]);
+  }, [defaultExpiry, autoStart]);
+
+  const handleSignIn = useCallback(() => {
+    // TODO: Open Auth0 browser flow
+    // shell.openExternal('https://auth.layerv.ai/authorize?...')
+    alert('Browser sign-in coming soon. For now, the app works without authentication.');
+  }, []);
 
   const inputStyle: CSSProperties = {
     width: '100%',
@@ -77,41 +77,37 @@ export function Settings() {
         </p>
       </div>
 
-      {/* Token field */}
-      <div>
-        <label style={labelStyle}>LAYERV_TOKEN</label>
-        <div style={{ display: 'flex', gap: '8px' }}>
-          <input
-            type={tokenVisible ? 'text' : 'password'}
-            value={token}
-            onChange={(e) => setToken(e.target.value)}
-            placeholder="Enter your API token"
-            style={{ ...inputStyle, flex: 1 }}
-            onFocus={(e) => {
-              e.currentTarget.style.borderColor = 'var(--color-border-focus)';
-            }}
-            onBlur={(e) => {
-              e.currentTarget.style.borderColor = 'var(--color-border)';
-            }}
-          />
-          <button
-            onClick={() => setTokenVisible(!tokenVisible)}
-            style={{
-              background: 'var(--color-bg-tertiary)',
-              color: 'var(--color-text-secondary)',
-              padding: '10px 14px',
-              borderRadius: 'var(--radius-sm)',
-              fontSize: 12,
-              fontWeight: 500,
-              flexShrink: 0,
-            }}
-          >
-            {tokenVisible ? 'Hide' : 'Show'}
-          </button>
+      {/* Account */}
+      <div
+        style={{
+          background: 'var(--color-bg-secondary)',
+          borderRadius: 'var(--radius-md)',
+          padding: '20px',
+          border: '1px solid var(--color-border)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+        }}
+      >
+        <div>
+          <div style={{ fontWeight: 600, fontSize: 15, marginBottom: '4px' }}>Account</div>
+          <p style={descriptionStyle}>
+            {isSignedIn ? 'Signed in. Your shares sync across devices.' : 'Sign in to create shareable QURL links.'}
+          </p>
         </div>
-        <p style={descriptionStyle}>
-          Your LayerV API token. You can also set this via the LAYERV_TOKEN environment variable.
-        </p>
+        <button
+          onClick={handleSignIn}
+          style={{
+            background: isSignedIn ? 'var(--color-bg-tertiary)' : 'var(--gradient-accent)',
+            color: isSignedIn ? 'var(--color-text-secondary)' : '#fff',
+            padding: '8px 20px',
+            borderRadius: 'var(--radius-sm)',
+            fontWeight: 600,
+            fontSize: 13,
+          }}
+        >
+          {isSignedIn ? 'Signed In' : 'Sign In'}
+        </button>
       </div>
 
       {/* Default expiry */}
@@ -154,7 +150,7 @@ export function Settings() {
         <div>
           <div style={{ fontWeight: 600, fontSize: 13 }}>Auto-start Tunnel</div>
           <p style={descriptionStyle}>
-            Automatically start the NHP-FRP tunnel when the app launches.
+            Automatically start the tunnel when the app launches.
           </p>
         </div>
         <button

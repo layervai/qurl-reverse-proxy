@@ -1,6 +1,8 @@
 import { app, BrowserWindow } from 'electron';
 import path from 'path';
 import { setupIpcHandlers, cleanupShares } from './ipc';
+import { createTray, destroyTray } from './tray';
+import { sidecar } from './ipc';
 
 let mainWindow: BrowserWindow | null = null;
 
@@ -17,7 +19,7 @@ function createWindow(): void {
       preload: path.join(__dirname, '..', 'preload', 'index.js'),
       contextIsolation: true,
       nodeIntegration: false,
-      sandbox: true,
+      sandbox: false, // Required for File.path in drag-and-drop
     },
   });
 
@@ -29,29 +31,49 @@ function createWindow(): void {
     mainWindow.loadFile(path.join(__dirname, '..', 'renderer', 'index.html'));
   }
 
+  // Close to tray on macOS instead of quitting
+  mainWindow.on('close', (e) => {
+    if (process.platform === 'darwin' && !app.isQuitting) {
+      e.preventDefault();
+      mainWindow?.hide();
+    }
+  });
+
   mainWindow.on('closed', () => {
     mainWindow = null;
   });
 }
 
+// Extend app with isQuitting flag
+declare module 'electron' {
+  interface App {
+    isQuitting?: boolean;
+  }
+}
+
 app.whenReady().then(() => {
   setupIpcHandlers();
   createWindow();
+  createTray(() => mainWindow, sidecar);
 
   app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) {
+    if (mainWindow) {
+      mainWindow.show();
+    } else {
       createWindow();
     }
   });
 });
 
 app.on('window-all-closed', () => {
-  cleanupShares();
   if (process.platform !== 'darwin') {
+    cleanupShares();
     app.quit();
   }
 });
 
 app.on('before-quit', () => {
+  app.isQuitting = true;
   cleanupShares();
+  destroyTray();
 });

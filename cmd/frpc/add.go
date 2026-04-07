@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net"
+	"net/http"
 	"net/url"
 	"regexp"
 	"strings"
@@ -201,6 +202,21 @@ func runAdd(_ *cobra.Command, _ []string) error {
 		fmt.Printf("Subdomain: %s\n", route.Subdomain)
 	}
 	fmt.Printf("Config saved to %s\n", cfgPath)
+
+	// Notify running tunnel to reload config (best-effort)
+	reloadClient := &http.Client{Timeout: 2 * time.Second}
+	req, _ := http.NewRequest("GET", "http://127.0.0.1:7400/api/reload", nil)
+	if req != nil {
+		req.SetBasicAuth("admin", getShortMachineID())
+		resp, reloadErr := reloadClient.Do(req)
+		if reloadErr == nil {
+			resp.Body.Close()
+			if resp.StatusCode == 200 {
+				fmt.Printf("Running tunnel reloaded with new route.\n")
+			}
+		}
+		// Silently ignore if tunnel isn't running
+	}
 
 	return nil
 }
