@@ -7,7 +7,6 @@ linters:
     - staticcheck
     - unused
     - gosimple
-    - gofmt
     - ineffassign
   settings:
     errcheck:
