@@ -1,5 +1,5 @@
 # Log to file instead of console
-log.to = "{{ .Envs.NHP_BIN_DIR }}/logs/nhp-frps.log"
+log.to = "{{ .Envs.QURL_BIN_DIR }}/logs/qurl-frps.log"
 log.level = "info"
 log.maxDays = 3
 

@@ -30,7 +30,7 @@ import (
 	"github.com/fatedier/frp/pkg/util/log"
 	"github.com/fatedier/frp/server"
 
-	nhpversion "github.com/OpenNHP/nhp-frp/pkg/version"
+	nhpversion "github.com/layervai/qurl-reverse-proxy/pkg/version"
 )
 
 const (
@@ -51,11 +51,11 @@ var (
 
 func printBanner() {
 	banner := `
-  _   _ _   _ ____        _____ ____  ____
- | \ | | | | |  _ \      |  ___|  _ \|  _ \
- |  \| | |_| | |_) |_____| |_  | |_) | |_) |
- | |\  |  _  |  __/______|  _| |  _ <|  __/
- |_| \_|_| |_|_|         |_|   |_| \_\_|
+   ___  _   _ ____  _
+  / _ \| | | |  _ \| |
+ | | | | | | | |_) | |
+ | |_| | |_| |  _ <| |___
+  \__\_\\___/|_| \_\_____|  Reverse Proxy
 `
 	fmt.Printf("%s%s%s%s", colorBold, colorCyan, banner, colorReset)
 	fmt.Printf("  %s%s (server)%s\n\n", colorGreen, nhpversion.Short(), colorReset)
@@ -72,8 +72,8 @@ func init() {
 }
 
 var rootCmd = &cobra.Command{
-	Use:   "nhp-frps",
-	Short: "nhp-frps is the server of nhp-frp (https://github.com/OpenNHP/nhp-frp)",
+	Use:   "qurl-frps",
+	Short: "qurl-frps is the server of QURL Reverse Proxy (https://github.com/layervai/qurl-reverse-proxy)",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		printBanner()
 
@@ -85,7 +85,7 @@ var rootCmd = &cobra.Command{
 		// Set binary directory for config template (e.g., log path)
 		if exePath, err := os.Executable(); err == nil {
 			binDir := filepath.ToSlash(filepath.Dir(exePath))
-			config.GetValues().Envs["NHP_BIN_DIR"] = binDir
+			config.GetValues().Envs["QURL_BIN_DIR"] = binDir
 
 			// Default config path: <binary_dir>/etc/frps.toml
 			if cfgFile == "" {

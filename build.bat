@@ -2,7 +2,7 @@
 setlocal enabledelayedexpansion
 
 set OPENNHP_DIR=third_party\opennhp
-set VERSION_PKG=github.com/OpenNHP/nhp-frp/pkg/version
+set VERSION_PKG=github.com/layervai/qurl-reverse-proxy/pkg/version
 
 :: Capture version info from git
 for /f "delims=" %%i in ('git describe --tags --abbrev=0 2^>nul') do set "BASE_VERSION=%%i"
@@ -63,7 +63,7 @@ call :frpc
 goto :eof
 
 :print-version
-powershell -NoProfile -Command "Write-Host '[nhp-frp] Start building...' -ForegroundColor Blue"
+powershell -NoProfile -Command "Write-Host '[qurl-proxy] Start building...' -ForegroundColor Blue"
 powershell -NoProfile -Command "Write-Host 'Version:     %VERSION% (OpenNHP: %NHP_VERSION%, FRP: %FRP_VERSION%)' -ForegroundColor Blue"
 powershell -NoProfile -Command "Write-Host 'Commit id:   %GIT_COMMIT%' -ForegroundColor Blue"
 powershell -NoProfile -Command "Write-Host 'Commit time: %GIT_COMMIT_TIME%' -ForegroundColor Blue"
@@ -86,19 +86,19 @@ goto :eof
 
 :frps
 call :print-version
-powershell -NoProfile -Command "Write-Host '[nhp-frp] Building nhp-frps ...' -ForegroundColor Blue"
+powershell -NoProfile -Command "Write-Host '[qurl-proxy] Building qurl-frps ...' -ForegroundColor Blue"
 set CGO_ENABLED=0
-go build -trimpath -ldflags "%LDFLAGS%" -tags frps -o bin\nhp-frps.exe .\cmd\frps
+go build -trimpath -ldflags "%LDFLAGS%" -tags frps -o bin\qurl-frps.exe .\cmd\frps
 if errorlevel 1 (
-    echo ERROR: Failed to build nhp-frps.
+    echo ERROR: Failed to build qurl-frps.
     exit /b 1
 )
-set "BUILD_MSG=[nhp-frp] nhp-frps built successfully -> %CD%\bin\nhp-frps.exe"
+set "BUILD_MSG=[qurl-proxy] qurl-frps built successfully -> %CD%\bin\qurl-frps.exe"
 powershell -NoProfile -Command "Write-Host $env:BUILD_MSG -ForegroundColor Green"
 goto :eof
 
 :build-sdk
-powershell -NoProfile -Command "Write-Host '[nhp-frp] Building OpenNHP SDK for Windows (nhp-agent.dll)...' -ForegroundColor Blue"
+powershell -NoProfile -Command "Write-Host '[qurl-proxy] Building OpenNHP SDK for Windows (nhp-agent.dll)...' -ForegroundColor Blue"
 
 :: CGO requires a working C compiler. On Windows we use MSYS2 MinGW GCC.
 :: GCC must be invoked with the MSYS2 mingw64 sysroot so it can find headers.
@@ -110,7 +110,7 @@ if "%MSYS2_DIR%"=="" (
 
 :: Check submodule is initialized
 if not exist "%OPENNHP_DIR%\endpoints" (
-    powershell -NoProfile -Command "Write-Host '[nhp-frp] Initializing OpenNHP submodule...' -ForegroundColor Blue"
+    powershell -NoProfile -Command "Write-Host '[qurl-proxy] Initializing OpenNHP submodule...' -ForegroundColor Blue"
     git submodule update --init --recursive
     if errorlevel 1 (
         echo ERROR: Failed to initialize submodule.
@@ -150,7 +150,7 @@ pushd %OPENNHP_DIR%
 git reset --hard HEAD 2>nul
 popd
 
-set "BUILD_MSG=[nhp-frp] OpenNHP Windows SDK built successfully -> %CD%\bin\sdk\nhp-agent.dll"
+set "BUILD_MSG=[qurl-proxy] OpenNHP Windows SDK built successfully -> %CD%\bin\sdk\nhp-agent.dll"
 powershell -NoProfile -Command "Write-Host $env:BUILD_MSG -ForegroundColor Green"
 :: Reset errorlevel so callers don't see stale errors from git/powershell
 cmd /c "exit /b 0"
@@ -161,27 +161,27 @@ call :print-version
 call :build-sdk
 if errorlevel 1 exit /b 1
 
-powershell -NoProfile -Command "Write-Host '[nhp-frp] Building nhp-frpc ...' -ForegroundColor Blue"
+powershell -NoProfile -Command "Write-Host '[qurl-proxy] Building qurl-frpc ...' -ForegroundColor Blue"
 set "PATH=%MSYS2_DIR%\mingw64\bin;%PATH%"
 set CGO_ENABLED=1
-go build -trimpath -ldflags "%LDFLAGS%" -o bin\nhp-frpc.exe .\cmd\frpc
+go build -trimpath -ldflags "%LDFLAGS%" -o bin\qurl-frpc.exe .\cmd\frpc
 if errorlevel 1 (
-    echo ERROR: Failed to build nhp-frpc.
+    echo ERROR: Failed to build qurl-frpc.
     exit /b 1
 )
-set "BUILD_MSG=[nhp-frp] nhp-frpc built successfully -> %CD%\bin\nhp-frpc.exe"
+set "BUILD_MSG=[qurl-proxy] qurl-frpc built successfully -> %CD%\bin\qurl-frpc.exe"
 powershell -NoProfile -Command "Write-Host $env:BUILD_MSG -ForegroundColor Green"
 goto :eof
 
 :clean
-powershell -NoProfile -Command "Write-Host '[nhp-frp] Cleaning build artifacts...' -ForegroundColor Blue"
-if exist bin\nhp-frpc.exe del /f bin\nhp-frpc.exe
-if exist bin\nhp-frps.exe del /f bin\nhp-frps.exe
+powershell -NoProfile -Command "Write-Host '[qurl-proxy] Cleaning build artifacts...' -ForegroundColor Blue"
+if exist bin\qurl-frpc.exe del /f bin\qurl-frpc.exe
+if exist bin\qurl-frps.exe del /f bin\qurl-frps.exe
 if exist bin\sdk rmdir /s /q bin\sdk
 goto :eof
 
 :clean-sdk
-powershell -NoProfile -Command "Write-Host '[nhp-frp] Cleaning OpenNHP SDK binaries...' -ForegroundColor Blue"
+powershell -NoProfile -Command "Write-Host '[qurl-proxy] Cleaning OpenNHP SDK binaries...' -ForegroundColor Blue"
 if exist bin\sdk\nhp-agent.dll del /f bin\sdk\nhp-agent.dll
 if exist bin\sdk\nhp-agent.h del /f bin\sdk\nhp-agent.h
 goto :eof
@@ -196,8 +196,8 @@ echo.
 echo Targets:
 echo   all        Build everything (default)
 echo   build      Build frps and frpc
-echo   frps       Build nhp-frps only
-echo   frpc       Build nhp-frpc only (includes SDK)
+echo   frps       Build qurl-frps only
+echo   frpc       Build qurl-frpc only (includes SDK)
 echo   build-sdk  Build OpenNHP SDK (nhp-agent.dll)
 echo   fmt        Format Go code
 echo   test       Run tests

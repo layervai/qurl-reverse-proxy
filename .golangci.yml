@@ -1,0 +1,26 @@
+version: "2"
+
+linters:
+  enable:
+    - errcheck
+    - govet
+    - staticcheck
+    - unused
+    - gosimple
+    - gofmt
+    - ineffassign
+    - typecheck
+  settings:
+    errcheck:
+      exclude-functions:
+        - (io.Closer).Close
+        - (net.Conn).Close
+
+run:
+  timeout: 5m
+
+issues:
+  exclude-dirs:
+    - third_party
+    - web/frpc/dist
+    - .claude

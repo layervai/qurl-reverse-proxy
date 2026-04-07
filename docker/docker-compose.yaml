@@ -48,11 +48,11 @@ services:
         ipv4_address: 177.7.0.10
 
   nhp-frpc:
-    image: nhpfrp-nhpfrpc
-    build: 
+    image: qurl-frpc
+    build:
       context: ..
       dockerfile: ./docker/Dockerfile.frpc
-    container_name: nhpfrp-nhpfrpc
+    container_name: qurl-frpc
     restart: always
     #command: []
     networks:

@@ -1,0 +1,107 @@
+# CI pipeline for qurl-reverse-proxy (nhp-frp)
+# Runs linting, server build, tests, and security checks on every push/PR.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  # ──────────────────────────────────────────────
+  # Lint with golangci-lint v2
+  # ──────────────────────────────────────────────
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.25"
+
+      - name: Run golangci-lint
+        uses: golangci/golangci-lint-action@v7
+
+  # ──────────────────────────────────────────────
+  # Build the server binary (pure Go, no CGO)
+  # ──────────────────────────────────────────────
+  build-server:
+    name: Build Server
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.25"
+
+      - name: Build qurl-frps
+        run: CGO_ENABLED=0 go build -trimpath -tags frps -o bin/qurl-frps ./cmd/frps
+
+      - name: Verify binary exists
+        run: |
+          test -f bin/qurl-frps
+          file bin/qurl-frps
+
+  # ──────────────────────────────────────────────
+  # Run tests on pkg/ (pure Go, no CGO required)
+  # cmd/ is excluded because it depends on the NHP SDK (CGO).
+  # ──────────────────────────────────────────────
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.25"
+
+      - name: Run tests
+        run: CGO_ENABLED=0 go test -race -coverprofile=coverage.out ./pkg/...
+
+      - name: Upload coverage artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage
+          path: coverage.out
+
+  # ──────────────────────────────────────────────
+  # Security scan with govulncheck
+  # ──────────────────────────────────────────────
+  security:
+    name: Security
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.25"
+
+      - name: Install govulncheck
+        run: go install golang.org/x/vuln/cmd/govulncheck@latest
+
+      - name: Run govulncheck
+        run: govulncheck ./...

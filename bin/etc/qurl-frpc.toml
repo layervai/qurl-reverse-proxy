@@ -1,4 +1,4 @@
-# NHP-FRP client settings (separate from FRP config to avoid unknown field errors)
+# QURL Reverse Proxy client settings (separate from FRP config to avoid unknown field errors)
 
 # The FRP server's subdomain host and vhost HTTP port (used to display public URL)
 # This should match the server's subDomainHost and vhostHTTPPort settings
