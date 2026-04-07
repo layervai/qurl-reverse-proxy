@@ -1,17 +1,20 @@
+import path from 'path';
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import electron from 'vite-plugin-electron';
 
+const root = path.resolve(__dirname, 'src/renderer');
+
 export default defineConfig({
-  root: 'src/renderer',
+  root,
   plugins: [
     react(),
     electron([
       {
-        entry: 'src/main/index.ts',
+        entry: path.resolve(__dirname, 'src/main/index.ts'),
         vite: {
           build: {
-            outDir: 'dist/main',
+            outDir: path.resolve(__dirname, 'dist/main'),
             rollupOptions: {
               external: ['electron'],
             },
@@ -19,13 +22,13 @@ export default defineConfig({
         },
       },
       {
-        entry: 'src/preload/index.ts',
+        entry: path.resolve(__dirname, 'src/preload/index.ts'),
         onstart(args) {
           args.reload();
         },
         vite: {
           build: {
-            outDir: 'dist/preload',
+            outDir: path.resolve(__dirname, 'dist/preload'),
             rollupOptions: {
               external: ['electron'],
             },
@@ -35,7 +38,7 @@ export default defineConfig({
     ]),
   ],
   build: {
-    outDir: '../../dist/renderer',
+    outDir: path.resolve(__dirname, 'dist/renderer'),
     emptyOutDir: true,
   },
 });

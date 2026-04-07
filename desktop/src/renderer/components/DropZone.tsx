@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useRef } from 'react';
+import { useState, useCallback, useRef, type DragEvent } from 'react';
 
 interface DropZoneProps {
   onDrop: (files: File[]) => void;
@@ -10,7 +10,7 @@ export function DropZone({ onDrop, disabled = false }: DropZoneProps) {
   const dragCounter = useRef(0);
 
   const handleDragEnter = useCallback(
-    (e: React.DragEvent) => {
+    (e: DragEvent) => {
       e.preventDefault();
       e.stopPropagation();
       if (disabled) return;
@@ -22,7 +22,7 @@ export function DropZone({ onDrop, disabled = false }: DropZoneProps) {
     [disabled],
   );
 
-  const handleDragLeave = useCallback((e: React.DragEvent) => {
+  const handleDragLeave = useCallback((e: DragEvent) => {
     e.preventDefault();
     e.stopPropagation();
     dragCounter.current--;
@@ -32,7 +32,7 @@ export function DropZone({ onDrop, disabled = false }: DropZoneProps) {
   }, []);
 
   const handleDragOver = useCallback(
-    (e: React.DragEvent) => {
+    (e: DragEvent) => {
       e.preventDefault();
       e.stopPropagation();
       if (!disabled) {
@@ -43,7 +43,7 @@ export function DropZone({ onDrop, disabled = false }: DropZoneProps) {
   );
 
   const handleDrop = useCallback(
-    (e: React.DragEvent) => {
+    (e: DragEvent) => {
       e.preventDefault();
       e.stopPropagation();
       setIsDragging(false);

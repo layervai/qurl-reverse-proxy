@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react';
+import { useState, useCallback } from 'react';
 import { DropZone } from '../components/DropZone';
 import { LinkCard } from '../components/LinkCard';
 

@@ -1,5 +1,3 @@
-import React from 'react';
-
 type Status = 'connected' | 'reconnecting' | 'disconnected';
 
 interface StatusBadgeProps {

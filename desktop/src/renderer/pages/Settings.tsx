@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, type CSSProperties } from 'react';
 import { StatusBadge } from '../components/StatusBadge';
 
 const EXPIRY_OPTIONS = [
@@ -42,7 +42,7 @@ export function Settings() {
     setTimeout(() => setSaved(false), 2000);
   }, [token, defaultExpiry, autoStart]);
 
-  const inputStyle: React.CSSProperties = {
+  const inputStyle: CSSProperties = {
     width: '100%',
     padding: '10px 14px',
     background: 'var(--color-bg-input)',
@@ -54,7 +54,7 @@ export function Settings() {
     transition: 'border-color var(--transition-fast)',
   };
 
-  const labelStyle: React.CSSProperties = {
+  const labelStyle: CSSProperties = {
     display: 'block',
     fontSize: 13,
     fontWeight: 600,
@@ -62,7 +62,7 @@ export function Settings() {
     color: 'var(--color-text-primary)',
   };
 
-  const descriptionStyle: React.CSSProperties = {
+  const descriptionStyle: CSSProperties = {
     fontSize: 12,
     color: 'var(--color-text-secondary)',
     marginTop: '4px',
