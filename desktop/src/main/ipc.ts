@@ -55,6 +55,19 @@ export function setupIpcHandlers(): void {
     }
   });
 
+  ipcMain.handle('auth:signInWithKey', async (_event, apiKey: string) => {
+    try {
+      const tokens = await auth.signInWithAPIKey(apiKey);
+      return {
+        success: true,
+        environment: tokens.environment,
+        apiKeyHint: tokens.apiKeyHint,
+      };
+    } catch (err) {
+      return { success: false, error: (err as Error).message };
+    }
+  });
+
   ipcMain.handle('auth:signOut', () => {
     auth.signOut();
     return { success: true };
@@ -66,6 +79,7 @@ export function setupIpcHandlers(): void {
       signedIn: tokens !== null,
       email: tokens?.email || null,
       environment: auth.getEnvironment(),
+      apiKeyHint: tokens?.apiKeyHint || null,
     };
   });
 

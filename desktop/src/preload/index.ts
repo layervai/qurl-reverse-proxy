@@ -3,6 +3,7 @@ import { contextBridge, ipcRenderer } from 'electron';
 contextBridge.exposeInMainWorld('qurl', {
   auth: {
     signIn: () => ipcRenderer.invoke('auth:signIn'),
+    signInWithKey: (key: string) => ipcRenderer.invoke('auth:signInWithKey', key),
     signOut: () => ipcRenderer.invoke('auth:signOut'),
     status: () => ipcRenderer.invoke('auth:status'),
   },

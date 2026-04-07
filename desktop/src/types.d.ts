@@ -7,11 +7,13 @@ interface AuthStatus {
   signedIn: boolean;
   email: string | null;
   environment: string;
+  apiKeyHint?: string | null;
 }
 
 interface AuthSignInResult extends IpcResult {
   email?: string;
   environment?: string;
+  apiKeyHint?: string;
 }
 
 interface SidecarStatus {
@@ -48,6 +50,7 @@ interface TunnelService {
 interface QUrlBridge {
   auth: {
     signIn: () => Promise<AuthSignInResult>;
+    signInWithKey: (key: string) => Promise<AuthSignInResult>;
     signOut: () => Promise<IpcResult>;
     status: () => Promise<AuthStatus>;
   };
@@ -71,10 +74,6 @@ interface QUrlBridge {
   };
 }
 
-declare global {
-  interface Window {
-    qurl: QUrlBridge;
-  }
+interface Window {
+  qurl: QUrlBridge;
 }
-
-export {};

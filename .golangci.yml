@@ -9,7 +9,6 @@ linters:
     - gosimple
     - gofmt
     - ineffassign
-    - typecheck
   settings:
     errcheck:
       exclude-functions:

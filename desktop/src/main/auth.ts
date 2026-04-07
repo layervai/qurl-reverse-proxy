@@ -1,4 +1,4 @@
-import { shell, safeStorage, BrowserWindow } from 'electron';
+import { shell, safeStorage } from 'electron';
 import http from 'http';
 import crypto from 'crypto';
 import { URL } from 'url';
@@ -33,6 +33,10 @@ interface AuthTokens {
   expiresAt: number;
   email?: string;
   environment: string;
+  /** When true, accessToken is an API key (lv_live_ / lv_test_ prefixed). */
+  isAPIKey?: boolean;
+  /** Masked display hint for the API key, e.g. "lv_live_...a3f2". */
+  apiKeyHint?: string;
 }
 
 let currentTokens: AuthTokens | null = null;
@@ -174,6 +178,69 @@ export async function signIn(): Promise<AuthTokens> {
   return currentTokens;
 }
 
+// API base URLs per environment, used for API key validation.
+const API_BASE_URLS: Record<string, string> = {
+  production: 'https://api.layerv.ai/v1',
+  staging: 'https://api-staging.layerv.ai/v1',
+};
+
+/**
+ * Validate and store an API key.
+ *
+ * The key prefix determines the environment:
+ *   lv_live_ -> production
+ *   lv_test_ -> staging
+ *
+ * Validates the key by calling the QURL health endpoint with it as a Bearer
+ * token. On success the key is stored encrypted, the same as OAuth tokens.
+ */
+export async function signInWithAPIKey(apiKey: string): Promise<AuthTokens> {
+  // Determine environment from prefix
+  let env: string;
+  if (apiKey.startsWith('lv_live_')) {
+    env = 'production';
+  } else if (apiKey.startsWith('lv_test_')) {
+    env = 'staging';
+  } else {
+    throw new Error(
+      'Invalid API key format. Keys must start with lv_live_ (production) or lv_test_ (staging).'
+    );
+  }
+
+  const baseURL = API_BASE_URLS[env];
+
+  // Validate the key against the QURL API health endpoint.
+  const resp = await fetch(`${baseURL}/health`, {
+    method: 'GET',
+    headers: { Authorization: `Bearer ${apiKey}` },
+  });
+
+  if (!resp.ok) {
+    if (resp.status === 401 || resp.status === 403) {
+      throw new Error('API key is invalid or revoked. Please check your key in the LayerV portal.');
+    }
+    throw new Error(`API validation failed (HTTP ${resp.status}). Please try again.`);
+  }
+
+  // Build a masked hint for display: "lv_live_...a3f2"
+  const prefix = apiKey.slice(0, 8); // "lv_live_" or "lv_test_"
+  const suffix = apiKey.slice(-4);
+  const hint = `${prefix}...${suffix}`;
+
+  currentTokens = {
+    accessToken: apiKey,
+    // API keys don't expire on the client side; set a far-future expiry so
+    // getTokens() doesn't discard them. The server enforces actual expiry.
+    expiresAt: Date.now() + 365 * 24 * 60 * 60 * 1000,
+    environment: env,
+    isAPIKey: true,
+    apiKeyHint: hint,
+  };
+
+  persistTokens(currentTokens);
+  return currentTokens;
+}
+
 export function signOut(): void {
   currentTokens = null;
   clearPersistedTokens();
@@ -186,6 +253,12 @@ export function getTokens(): AuthTokens | null {
   // Try loading from disk
   const loaded = loadPersistedTokens();
   if (loaded && loaded.expiresAt > Date.now()) {
+    currentTokens = loaded;
+    return loaded;
+  }
+  // API keys persisted in an older format may lack expiresAt; accept them
+  // if the isAPIKey flag is set.
+  if (loaded && loaded.isAPIKey) {
     currentTokens = loaded;
     return loaded;
   }

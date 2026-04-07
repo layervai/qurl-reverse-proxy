@@ -33,7 +33,7 @@ function createWindow(): void {
 
   // Close to tray on macOS instead of quitting
   mainWindow.on('close', (e) => {
-    if (process.platform === 'darwin' && !app.isQuitting) {
+    if (process.platform === 'darwin' && !isQuitting) {
       e.preventDefault();
       mainWindow?.hide();
     }
@@ -44,12 +44,7 @@ function createWindow(): void {
   });
 }
 
-// Extend app with isQuitting flag
-declare module 'electron' {
-  interface App {
-    isQuitting?: boolean;
-  }
-}
+let isQuitting = false;
 
 app.whenReady().then(() => {
   setupIpcHandlers();
@@ -73,7 +68,7 @@ app.on('window-all-closed', () => {
 });
 
 app.on('before-quit', () => {
-  app.isQuitting = true;
+  isQuitting = true;
   cleanupShares();
   destroyTray();
 });

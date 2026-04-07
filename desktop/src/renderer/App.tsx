@@ -58,6 +58,7 @@ export function App() {
   const [page, setPage] = useState<Page>('share');
   const [authMode, setAuthMode] = useState<AuthMode>('none');
   const [email, setEmail] = useState<string | null>(null);
+  const [apiKeyHint, setApiKeyHint] = useState<string | null>(null);
 
   useEffect(() => {
     // Check persisted auth mode for guest
@@ -68,9 +69,10 @@ export function App() {
     // Account auth is checked by Login component via auth:status IPC
   }, []);
 
-  const handleAuthenticated = useCallback((mode: 'account' | 'guest', userEmail?: string) => {
+  const handleAuthenticated = useCallback((mode: 'account' | 'guest', userEmail?: string, keyHint?: string) => {
     setAuthMode(mode);
     setEmail(userEmail || null);
+    setApiKeyHint(keyHint || null);
     localStorage.setItem('qurl:authMode', mode);
   }, []);
 
@@ -80,6 +82,7 @@ export function App() {
     }
     setAuthMode('none');
     setEmail(null);
+    setApiKeyHint(null);
     localStorage.removeItem('qurl:authMode');
   }, [authMode]);
 
@@ -116,7 +119,7 @@ export function App() {
             QURL
           </div>
           <div style={{ fontSize: 11, color: 'var(--color-text-muted)', marginTop: '2px' }}>
-            {isGuest ? 'Guest Mode' : (email || 'Signed In')}
+            {isGuest ? 'Guest Mode' : (email || apiKeyHint || 'Signed In')}
           </div>
         </div>
 

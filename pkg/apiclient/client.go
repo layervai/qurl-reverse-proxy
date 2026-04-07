@@ -34,8 +34,14 @@ type Client struct {
 type Option func(*Client)
 
 // New creates a new QURL API client. If baseURL is empty, the default
-// (https://api.layerv.ai/v1) is used. token is the Bearer token for
-// authentication.
+// (https://api.layerv.ai/v1) is used.
+//
+// token is sent as a Bearer token in every request. It can be either:
+//   - An OAuth access token obtained from Auth0, or
+//   - A QURL API key provisioned from the LayerV portal (prefixed with
+//     lv_live_ for production or lv_test_ for staging/test environments).
+//
+// Both token types are used identically as "Authorization: Bearer <token>".
 func New(baseURL, token string, opts ...Option) *Client {
 	if baseURL == "" {
 		baseURL = defaultBaseURL

@@ -24,7 +24,8 @@ var rootCmd = &cobra.Command{
 
 func init() {
 	rootCmd.PersistentFlags().StringVarP(&cfgFile, "config", "c", "", "path to config file")
-	rootCmd.PersistentFlags().StringVar(&token, "token", "", "LAYERV_TOKEN for API auth")
+	rootCmd.PersistentFlags().StringVar(&token, "token", "",
+		"API token for authentication (env: LAYERV_TOKEN). Accepts an OAuth access token or a QURL API key (prefixed lv_live_ for production, lv_test_ for staging)")
 
 	rootCmd.AddCommand(runCmd)
 	rootCmd.AddCommand(versionCmd)
@@ -35,6 +36,7 @@ func init() {
 }
 
 // getToken returns the API token from the --token flag or LAYERV_TOKEN env var.
+// The token may be an OAuth access token or a QURL API key (lv_live_* / lv_test_*).
 func getToken() string {
 	if token != "" {
 		return token
