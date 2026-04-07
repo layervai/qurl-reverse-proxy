@@ -17,8 +17,6 @@ linters:
 
 run:
   timeout: 5m
-
-issues:
   exclude-dirs:
     - third_party
     - web/frpc/dist
