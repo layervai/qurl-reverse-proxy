@@ -31,7 +31,7 @@ jobs:
       - name: Run golangci-lint
         uses: golangci/golangci-lint-action@v7
         with:
-          args: --exclude-dirs third_party,web/frpc/dist,.claude ./pkg/...
+          args: ./pkg/...
 
   # ──────────────────────────────────────────────
   # Build the server binary (pure Go, no CGO)
