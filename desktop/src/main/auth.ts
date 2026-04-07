@@ -11,17 +11,20 @@ interface AuthConfig {
   redirectPort: number;
 }
 
+// Single Auth0 tenant shared across environments (auth.layerv.ai).
+// Environments are distinguished by API audience, not Auth0 domain.
+// If a separate staging tenant is added later, update the domain here.
 const AUTH_CONFIGS: Record<string, AuthConfig> = {
   production: {
     domain: 'auth.layerv.ai',
-    clientId: '', // TODO: Register desktop app in Auth0 prod tenant
+    clientId: process.env.QURL_AUTH0_CLIENT_ID || '', // TODO: Set after registering Native app in Auth0
     audience: 'https://api.layerv.ai',
     redirectPort: 19836,
   },
   staging: {
-    domain: 'auth-staging.layerv.ai',
-    clientId: '', // TODO: Register desktop app in Auth0 staging tenant
-    audience: 'https://api-staging.layerv.ai',
+    domain: 'auth.layerv.ai', // Same tenant as production
+    clientId: process.env.QURL_AUTH0_CLIENT_ID || '', // Same app, different audience
+    audience: 'https://api.layerv.xyz',
     redirectPort: 19836,
   },
 };
@@ -179,9 +182,10 @@ export async function signIn(): Promise<AuthTokens> {
 }
 
 // API base URLs per environment, used for API key validation.
+// Matches infrastructure: staging = api.layerv.xyz, production = api.layerv.ai
 const API_BASE_URLS: Record<string, string> = {
   production: 'https://api.layerv.ai/v1',
-  staging: 'https://api-staging.layerv.ai/v1',
+  staging: 'https://api.layerv.xyz/v1',
 };
 
 /**
