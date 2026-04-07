@@ -130,9 +130,13 @@ routes:
     local_port: 80
     subdomain: app
 `
-	_, err := Load(writeConfig(t, yaml))
-	if err == nil {
-		t.Fatal("expected validation error for missing server.addr")
+	// Missing server.addr is allowed (routes can be added before server is configured)
+	cfg, err := Load(writeConfig(t, yaml))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(cfg.Routes) != 1 {
+		t.Errorf("expected 1 route, got %d", len(cfg.Routes))
 	}
 }
 
@@ -247,9 +251,13 @@ routes:
     type: frp_tcp
     local_port: 22
 `
-	_, err := Load(writeConfig(t, yaml))
-	if err == nil {
-		t.Fatal("expected validation error for frp_tcp without remote_port")
+	// remote_port is optional (server-assigned), so this should pass
+	cfg, err := Load(writeConfig(t, yaml))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cfg.Routes[0].RemotePort != 0 {
+		t.Errorf("expected remote_port 0, got %d", cfg.Routes[0].RemotePort)
 	}
 }
 
@@ -262,9 +270,13 @@ routes:
     type: frp_http
     local_port: 80
 `
-	_, err := Load(writeConfig(t, yaml))
-	if err == nil {
-		t.Fatal("expected validation error for frp_http without subdomain/custom_domains")
+	// subdomain/custom_domains are optional (may be auto-generated), so this should pass
+	cfg, err := Load(writeConfig(t, yaml))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cfg.Routes[0].Subdomain != "" {
+		t.Errorf("expected empty subdomain, got %q", cfg.Routes[0].Subdomain)
 	}
 }
 

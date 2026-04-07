@@ -10,11 +10,8 @@ import (
 func Validate(cfg *Config) error {
 	var errs []error
 
-	// Server validation
-	if cfg.Server.Addr == "" {
-		errs = append(errs, errors.New("server.addr is required"))
-	}
-	if cfg.Server.Port < 1 || cfg.Server.Port > 65535 {
+	// Server validation (only when server section is configured)
+	if cfg.Server.Addr != "" && (cfg.Server.Port < 1 || cfg.Server.Port > 65535) {
 		errs = append(errs, fmt.Errorf("server.port must be 1-65535, got %d", cfg.Server.Port))
 	}
 
@@ -33,13 +30,9 @@ func Validate(cfg *Config) error {
 
 		switch r.Type {
 		case RouteTypeHTTP:
-			if r.Subdomain == "" && len(r.CustomDomains) == 0 {
-				errs = append(errs, fmt.Errorf("%s (%s): frp_http requires subdomain or custom_domains", prefix, r.Name))
-			}
+			// subdomain/custom_domains validated at run time (may be auto-generated)
 		case RouteTypeTCP:
-			if r.RemotePort == 0 {
-				errs = append(errs, fmt.Errorf("%s (%s): frp_tcp requires remote_port", prefix, r.Name))
-			}
+			// remote_port validated at run time (may be server-assigned)
 		default:
 			errs = append(errs, fmt.Errorf("%s (%s): unsupported route type %q", prefix, r.Name, r.Type))
 		}

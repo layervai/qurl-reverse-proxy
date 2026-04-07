@@ -30,10 +30,11 @@ Examples:
 }
 
 func runList(_ *cobra.Command, _ []string) error {
-	// Load config
-	cfgPath, _, discoverErr := nhpconfig.Discover(cfgFile)
-	if discoverErr != nil {
-		return fmt.Errorf("no config file found; use --config to specify the path")
+	// Load config (YAML only, not legacy TOML)
+	cfgPath, isLegacy, discoverErr := nhpconfig.Discover(cfgFile)
+	if discoverErr != nil || isLegacy {
+		fmt.Println("No routes configured. Use 'qurl-frpc add' to register a service.")
+		return nil
 	}
 
 	cfg, err := nhpconfig.Load(cfgPath)

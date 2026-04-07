@@ -132,17 +132,17 @@ func runAdd(_ *cobra.Command, _ []string) error {
 		}
 	}
 
-	// Load or create config
-	cfgPath, _, discoverErr := nhpconfig.Discover(cfgFile)
+	// Load or create config (YAML only, not legacy TOML)
+	cfgPath, isLegacy, discoverErr := nhpconfig.Discover(cfgFile)
 
 	var cfg *nhpconfig.Config
-	if discoverErr == nil {
+	if discoverErr == nil && !isLegacy {
 		cfg, err = nhpconfig.Load(cfgPath)
 		if err != nil {
 			return fmt.Errorf("loading config: %w", err)
 		}
 	} else {
-		// No existing config found; create a new one in the current directory
+		// No YAML config found; create a new one in the current directory
 		cfg = &nhpconfig.Config{}
 		cfgPath = "qurl-proxy.yaml"
 	}

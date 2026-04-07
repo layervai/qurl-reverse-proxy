@@ -40,10 +40,10 @@ func runRemove(_ *cobra.Command, args []string) error {
 		return fmt.Errorf("provide a route name as argument or use --id flag")
 	}
 
-	// Load config
-	cfgPath, _, discoverErr := nhpconfig.Discover(cfgFile)
-	if discoverErr != nil {
-		return fmt.Errorf("no config file found; use --config to specify the path")
+	// Load config (YAML only, not legacy TOML)
+	cfgPath, isLegacy, discoverErr := nhpconfig.Discover(cfgFile)
+	if discoverErr != nil || isLegacy {
+		return fmt.Errorf("no qurl-proxy.yaml found; use 'qurl-frpc add' to create one or --config to specify the path")
 	}
 
 	cfg, err := nhpconfig.Load(cfgPath)
