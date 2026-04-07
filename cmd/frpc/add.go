@@ -164,17 +164,9 @@ func runAdd(_ *cobra.Command, _ []string) error {
 		TargetURL: targetURL,
 	}
 
-	// Generate subdomain for HTTP routes
-	if routeType == nhpconfig.RouteTypeHTTP {
-		mid := cfg.NHP.MachineID
-		if mid == "" {
-			mid = getShortMachineID()
-			cfg.NHP.MachineID = mid
-		}
-		route.Subdomain = mid + "-" + sanitizeName(addName)
-	}
-
-	// Register with QURL API if token is available
+	// Register with QURL API if token is available.
+	// The API-returned resource_id is used as the FRP subdomain so that
+	// Traefik can route https://<resource_id>.qurl.site to this tunnel.
 	if tok := getToken(); tok != "" {
 		client := apiclient.New(getAPIBaseURL(), tok)
 		resp, apiErr := client.CreateResource(context.Background(), &apiclient.CreateResourceRequest{
@@ -186,8 +178,29 @@ func runAdd(_ *cobra.Command, _ []string) error {
 			fmt.Printf("Warning: failed to register with QURL API: %v\n", apiErr)
 		} else {
 			route.ResourceID = resp.ID
+			// Use resource_id as subdomain for Traefik routing
+			if routeType == nhpconfig.RouteTypeHTTP && resp.ID != "" {
+				route.Subdomain = resp.ID
+			}
+			publicDomain := cfg.Server.PublicDomain
+			if publicDomain == "" {
+				publicDomain = "qurl.site"
+			}
 			fmt.Printf("Registered with QURL API (resource_id: %s)\n", resp.ID)
+			if route.Subdomain != "" {
+				fmt.Printf("Public URL: https://%s.%s\n", route.Subdomain, publicDomain)
+			}
 		}
+	}
+
+	// Fallback subdomain for HTTP routes when no API token or API failed
+	if routeType == nhpconfig.RouteTypeHTTP && route.Subdomain == "" {
+		mid := cfg.NHP.MachineID
+		if mid == "" {
+			mid = getShortMachineID()
+			cfg.NHP.MachineID = mid
+		}
+		route.Subdomain = mid + "-" + sanitizeName(addName)
 	}
 
 	// Append and save

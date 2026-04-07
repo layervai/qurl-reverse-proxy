@@ -21,10 +21,11 @@ type Config struct {
 
 // ServerConfig holds connection details for the FRP server.
 type ServerConfig struct {
-	Addr     string `yaml:"addr"`
-	Port     int    `yaml:"port"`
-	Token    string `yaml:"token,omitempty"`
-	Protocol string `yaml:"protocol,omitempty"` // tcp, kcp, quic, websocket
+	Addr         string `yaml:"addr"`
+	Port         int    `yaml:"port"`
+	Token        string `yaml:"token,omitempty"`
+	Protocol     string `yaml:"protocol,omitempty"`      // tcp, kcp, quic, websocket
+	PublicDomain string `yaml:"public_domain,omitempty"` // vhost domain for public URLs (e.g., qurl.site)
 }
 
 // NHPConfig holds Network Hiding Protocol settings.
@@ -115,8 +116,14 @@ func Load(path string) (*Config, error) {
 
 // applyDefaults fills in zero-value fields with sensible defaults.
 func applyDefaults(cfg *Config) {
+	if cfg.Server.Addr == "" {
+		cfg.Server.Addr = "proxy.layerv.ai"
+	}
 	if cfg.Server.Port == 0 {
 		cfg.Server.Port = 7000
+	}
+	if cfg.Server.PublicDomain == "" {
+		cfg.Server.PublicDomain = "qurl.site"
 	}
 	for i := range cfg.Routes {
 		if cfg.Routes[i].LocalIP == "" {

@@ -13,6 +13,7 @@ import (
 	"github.com/denisbrodbeck/machineid"
 	"github.com/spf13/cobra"
 
+	"github.com/layervai/qurl-reverse-proxy/pkg/apiclient"
 	"github.com/layervai/qurl-reverse-proxy/pkg/config"
 	"github.com/layervai/qurl-reverse-proxy/pkg/version"
 	"github.com/OpenNHP/opennhp/endpoints/agent"
@@ -162,6 +163,8 @@ func startFRPFromYAML(cfgPath string, machineID string) error {
 	return startService(common, proxyCfgs, visitorCfgs, cfgPath)
 }
 
+const heartbeatInterval = 30 * time.Second
+
 // startService creates and runs the FRP client service.
 func startService(
 	cfg *v1.ClientCommonConfig,
@@ -187,18 +190,57 @@ func startService(
 		return fmt.Errorf("failed to create FRP service: %w", err)
 	}
 
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	// Start heartbeat goroutine if API token is available
+	if tok := getToken(); tok != "" {
+		machineID := getMachineID()
+		apiClient := apiclient.New(getAPIBaseURL(), tok)
+		go runHeartbeat(ctx, apiClient, machineID)
+	}
+
 	shouldGracefulClose := cfg.Transport.Protocol == "kcp" || cfg.Transport.Protocol == "quic"
 	if shouldGracefulClose {
-		go handleTermSignal(svr)
+		go func() {
+			ch := make(chan os.Signal, 1)
+			signal.Notify(ch, syscall.SIGINT, syscall.SIGTERM)
+			<-ch
+			cancel()
+			svr.GracefulClose(500 * time.Millisecond)
+		}()
 	}
-	return svr.Run(context.Background())
+	return svr.Run(ctx)
 }
 
-func handleTermSignal(svr *client.Service) {
-	ch := make(chan os.Signal, 1)
-	signal.Notify(ch, syscall.SIGINT, syscall.SIGTERM)
-	<-ch
-	svr.GracefulClose(500 * time.Millisecond)
+// runHeartbeat sends periodic heartbeats to the QURL API.
+func runHeartbeat(ctx context.Context, client *apiclient.Client, machineID string) {
+	startTime := time.Now()
+	ticker := time.NewTicker(heartbeatInterval)
+	defer ticker.Stop()
+
+	// Send initial heartbeat immediately
+	sendHeartbeat(ctx, client, machineID, startTime)
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			sendHeartbeat(ctx, client, machineID, startTime)
+		}
+	}
+}
+
+func sendHeartbeat(ctx context.Context, client *apiclient.Client, machineID string, startTime time.Time) {
+	uptime := int64(time.Since(startTime).Seconds())
+	if err := client.Heartbeat(ctx, &apiclient.HeartbeatRequest{
+		ConnectorID: machineID,
+		MachineID:   machineID,
+		Uptime:      uptime,
+	}); err != nil {
+		log.Warnf("heartbeat failed: %v", err)
+	}
 }
 
 // startFRPLegacy delegates to FRP's built-in Cobra for legacy TOML configs.

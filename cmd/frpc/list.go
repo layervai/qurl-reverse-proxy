@@ -55,14 +55,22 @@ func runList(_ *cobra.Command, _ []string) error {
 
 	// Table output
 	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(w, "NAME\tTYPE\tTARGET\tRESOURCE ID")
+	fmt.Fprintln(w, "NAME\tTYPE\tTARGET\tPUBLIC URL\tRESOURCE ID")
+	publicDomain := cfg.Server.PublicDomain
+	if publicDomain == "" {
+		publicDomain = "qurl.site"
+	}
 	for _, r := range cfg.Routes {
 		target := fmt.Sprintf("%s:%d", r.LocalIP, r.LocalPort)
 		resID := r.ResourceID
 		if resID == "" {
 			resID = "-"
 		}
-		fmt.Fprintf(w, "%s\t%s\t%s\t%s\n", r.Name, r.Type, target, resID)
+		publicURL := "-"
+		if r.Subdomain != "" {
+			publicURL = fmt.Sprintf("https://%s.%s", r.Subdomain, publicDomain)
+		}
+		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\n", r.Name, r.Type, target, publicURL, resID)
 	}
 	return w.Flush()
 }

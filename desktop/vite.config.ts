@@ -1,6 +1,7 @@
 import path from 'path';
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
+import tailwindcss from '@tailwindcss/vite';
 import electron from 'vite-plugin-electron';
 
 const root = path.resolve(__dirname, 'src/renderer');
@@ -8,6 +9,7 @@ const root = path.resolve(__dirname, 'src/renderer');
 export default defineConfig({
   root,
   plugins: [
+    tailwindcss(),
     react(),
     electron([
       {
@@ -16,7 +18,7 @@ export default defineConfig({
           build: {
             outDir: path.resolve(__dirname, 'dist/main'),
             rollupOptions: {
-              external: ['electron'],
+              external: ['electron', '@layerv/qurl'],
             },
           },
         },

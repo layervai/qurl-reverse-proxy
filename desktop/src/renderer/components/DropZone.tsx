@@ -81,38 +81,29 @@ export function DropZone({ onDrop, disabled = false }: DropZoneProps) {
       onDragOver={handleDragOver}
       onDrop={handleDrop}
       onClick={handleBrowse}
-      style={{
-        border: `2px dashed ${isDragging ? 'var(--color-accent-blue)' : 'var(--color-border)'}`,
-        borderRadius: 'var(--radius-lg)',
-        padding: '48px 32px',
-        textAlign: 'center',
-        cursor: disabled ? 'not-allowed' : 'pointer',
-        transition: 'all var(--transition-normal)',
-        background: isDragging
-          ? 'rgba(79, 172, 254, 0.06)'
-          : 'var(--color-bg-secondary)',
-        opacity: disabled ? 0.5 : 1,
-        minHeight: 200,
-        display: 'flex',
-        flexDirection: 'column',
-        alignItems: 'center',
-        justifyContent: 'center',
-        gap: '12px',
-      }}
+      className={`
+        border-2 border-dashed rounded-xl px-8 py-12 text-center
+        transition-all duration-300 min-h-[200px]
+        flex flex-col items-center justify-center gap-3
+        ${disabled ? 'cursor-not-allowed opacity-50' : 'cursor-pointer'}
+        ${isDragging
+          ? 'border-accent bg-accent-dim'
+          : 'border-glass-border bg-surface-2 hover:border-glass-border-hover hover:bg-surface-hover'
+        }
+      `}
     >
-      <div style={{ fontSize: 48, lineHeight: 1, opacity: 0.6 }}>
+      <div className={`text-5xl leading-none ${isDragging ? 'opacity-90' : 'opacity-60'}`}>
         {isDragging ? '\u2193' : '\u2B06'}
       </div>
       <div
-        style={{
-          fontSize: 16,
-          fontWeight: 500,
-          color: isDragging ? 'var(--color-accent-blue)' : 'var(--color-text-primary)',
-        }}
+        className={`
+          text-base font-medium transition-colors duration-200
+          ${isDragging ? 'text-accent' : 'text-text-primary'}
+        `}
       >
         {isDragging ? 'Release to share' : 'Drop files here'}
       </div>
-      <div style={{ fontSize: 13, color: 'var(--color-text-secondary)' }}>
+      <div className="text-[13px] text-text-secondary">
         or click to browse files and folders
       </div>
     </div>

@@ -40,9 +40,28 @@ export class FileServer {
   private server: http.Server | null = null;
   private port: number;
   private servingPath: string | null = null;
+  private expiresAt: number | null = null;
+  private expiryTimer: ReturnType<typeof setTimeout> | null = null;
 
   constructor(port: number = 9876) {
     this.port = port;
+  }
+
+  /**
+   * Set an expiration time. After this time, requests return 410 Gone
+   * and the server auto-stops.
+   */
+  setExpiry(expiresAtMs: number): void {
+    this.expiresAt = expiresAtMs;
+    if (this.expiryTimer) clearTimeout(this.expiryTimer);
+    const delay = expiresAtMs - Date.now();
+    if (delay > 0) {
+      this.expiryTimer = setTimeout(() => this.stop(), delay);
+    }
+  }
+
+  private isExpired(): boolean {
+    return this.expiresAt !== null && Date.now() >= this.expiresAt;
   }
 
   async serve(filePath: string): Promise<ServeResult> {
@@ -56,6 +75,11 @@ export class FileServer {
     return new Promise((resolve, reject) => {
       this.server = http.createServer((req, res) => {
         try {
+          if (this.isExpired()) {
+            res.writeHead(410, { 'Content-Type': 'text/plain' });
+            res.end('Gone — this share has expired');
+            return;
+          }
           if (isDirectory) {
             this.serveDirectory(filePath, req, res);
           } else {
@@ -90,6 +114,10 @@ export class FileServer {
   }
 
   async stop(): Promise<void> {
+    if (this.expiryTimer) {
+      clearTimeout(this.expiryTimer);
+      this.expiryTimer = null;
+    }
     if (!this.server) return;
 
     return new Promise((resolve) => {

@@ -18,9 +18,28 @@ contextBridge.exposeInMainWorld('qurl', {
     remove: (name: string) => ipcRenderer.invoke('tunnels:remove', name),
   },
   share: {
-    file: (filePath: string, name: string) => ipcRenderer.invoke('share:file', filePath, name),
+    file: (filePath: string, name: string, options?: Partial<QURLCreateInput>) =>
+      ipcRenderer.invoke('share:file', filePath, name, options),
+    url: (targetUrl: string, options?: Partial<QURLCreateInput>) =>
+      ipcRenderer.invoke('share:url', targetUrl, options),
+    service: (serviceName: string, options?: Partial<QURLCreateInput>) =>
+      ipcRenderer.invoke('share:service', serviceName, options),
     stop: (id: string) => ipcRenderer.invoke('share:stop', id),
     list: () => ipcRenderer.invoke('shares:list'),
+    detectUrl: (url: string) => ipcRenderer.invoke('share:detectUrl', url),
+  },
+  qurls: {
+    create: (input: QURLCreateInput) => ipcRenderer.invoke('qurls:create', input),
+    list: (params?: { limit?: number; cursor?: string; status?: string }) =>
+      ipcRenderer.invoke('qurls:list', params),
+    get: (id: string) => ipcRenderer.invoke('qurls:get', id),
+    revoke: (resourceId: string) => ipcRenderer.invoke('qurls:revoke', resourceId),
+    mintLink: (resourceId: string, input?: Partial<QURLCreateInput>) =>
+      ipcRenderer.invoke('qurls:mintLink', resourceId, input),
+  },
+  settings: {
+    getDefaults: () => ipcRenderer.invoke('settings:getDefaults'),
+    setDefaults: (defaults: Partial<QURLDefaults>) => ipcRenderer.invoke('settings:setDefaults', defaults),
   },
   dialog: {
     openFile: () => ipcRenderer.invoke('dialog:openFile'),

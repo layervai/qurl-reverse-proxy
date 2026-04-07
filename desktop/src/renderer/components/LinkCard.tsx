@@ -12,10 +12,8 @@ interface LinkCardProps {
 function formatTimeRemaining(expiresAt: number): string {
   const remaining = expiresAt - Date.now();
   if (remaining <= 0) return 'Expired';
-
   const hours = Math.floor(remaining / (1000 * 60 * 60));
   const minutes = Math.floor((remaining % (1000 * 60 * 60)) / (1000 * 60));
-
   if (hours > 0) return `${hours}h ${minutes}m remaining`;
   return `${minutes}m remaining`;
 }
@@ -34,7 +32,6 @@ export function LinkCard({ id, name, link, createdAt, expiresAt, onRevoke }: Lin
   const [copied, setCopied] = useState(false);
   const [, setTick] = useState(0);
 
-  // Update the countdown every minute
   useEffect(() => {
     if (!expiresAt) return;
     const interval = setInterval(() => setTick((t) => t + 1), 30000);
@@ -52,108 +49,41 @@ export function LinkCard({ id, name, link, createdAt, expiresAt, onRevoke }: Lin
   }, [id, onRevoke]);
 
   return (
-    <div
-      style={{
-        background: 'var(--color-bg-secondary)',
-        borderRadius: 'var(--radius-md)',
-        padding: '16px',
-        border: '1px solid var(--color-border)',
-        display: 'flex',
-        flexDirection: 'column',
-        gap: '10px',
-        transition: 'border-color var(--transition-fast)',
-      }}
-      onMouseEnter={(e) => {
-        e.currentTarget.style.borderColor = 'var(--color-bg-hover)';
-      }}
-      onMouseLeave={(e) => {
-        e.currentTarget.style.borderColor = 'var(--color-border)';
-      }}
-    >
-      {/* Header row */}
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', minWidth: 0 }}>
-          <span style={{ fontSize: 18 }}>{'\uD83D\uDCC4'}</span>
-          <span
-            style={{
-              fontWeight: 600,
-              fontSize: 14,
-              overflow: 'hidden',
-              textOverflow: 'ellipsis',
-              whiteSpace: 'nowrap',
-            }}
-          >
-            {name}
-          </span>
+    <div className="bg-surface-2 rounded-lg p-4 border border-glass-border flex flex-col gap-2.5 transition-colors hover:border-glass-border-hover">
+      {/* Header */}
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2 min-w-0">
+          <svg className="w-4 h-4 text-text-tertiary shrink-0" viewBox="0 0 24 24" fill="currentColor">
+            <path d="M14 2H6c-1.1 0-2 .9-2 2v16c0 1.1.89 2 1.99 2H18c1.1 0 2-.9 2-2V8l-6-6zm2 16H8v-2h8v2zm0-4H8v-2h8v2zm-3-5V3.5L18.5 9H13z" />
+          </svg>
+          <span className="font-semibold text-sm truncate">{name}</span>
         </div>
-        <span style={{ fontSize: 12, color: 'var(--color-text-muted)', flexShrink: 0 }}>
-          {formatTimeAgo(createdAt)}
-        </span>
+        <span className="text-xs text-text-muted shrink-0">{formatTimeAgo(createdAt)}</span>
       </div>
 
-      {/* Link row */}
-      <div
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          gap: '8px',
-          background: 'var(--color-bg-input)',
-          borderRadius: 'var(--radius-sm)',
-          padding: '8px 12px',
-        }}
-      >
-        <code
-          style={{
-            flex: 1,
-            fontFamily: 'var(--font-mono)',
-            fontSize: 12,
-            color: 'var(--color-accent-blue)',
-            overflow: 'hidden',
-            textOverflow: 'ellipsis',
-            whiteSpace: 'nowrap',
-          }}
-        >
-          {link}
-        </code>
+      {/* Link */}
+      <div className="flex items-center gap-2 bg-surface-1 rounded-md px-3 py-2">
+        <code className="flex-1 font-mono text-xs text-accent truncate">{link}</code>
         <button
           onClick={handleCopy}
-          style={{
-            background: copied ? 'var(--color-accent-green)' : 'var(--color-bg-tertiary)',
-            color: copied ? '#fff' : 'var(--color-text-primary)',
-            padding: '4px 12px',
-            borderRadius: 'var(--radius-sm)',
-            fontSize: 12,
-            fontWeight: 500,
-            transition: 'all var(--transition-fast)',
-            flexShrink: 0,
-          }}
+          className={`px-3 py-1 rounded-md text-xs font-medium shrink-0 transition-all ${
+            copied
+              ? 'bg-success text-text-inverse'
+              : 'bg-surface-3 text-text-primary hover:bg-surface-4'
+          }`}
         >
           {copied ? 'Copied!' : 'Copy'}
         </button>
       </div>
 
-      {/* Footer row */}
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-        <span style={{ fontSize: 12, color: 'var(--color-text-secondary)' }}>
+      {/* Footer */}
+      <div className="flex items-center justify-between">
+        <span className="text-xs text-text-secondary">
           {expiresAt ? formatTimeRemaining(expiresAt) : 'No expiry set'}
         </span>
         <button
           onClick={handleRevoke}
-          style={{
-            background: 'transparent',
-            color: 'var(--color-accent-red)',
-            padding: '4px 10px',
-            borderRadius: 'var(--radius-sm)',
-            fontSize: 12,
-            fontWeight: 500,
-            transition: 'background var(--transition-fast)',
-          }}
-          onMouseEnter={(e) => {
-            e.currentTarget.style.background = 'rgba(248, 113, 113, 0.1)';
-          }}
-          onMouseLeave={(e) => {
-            e.currentTarget.style.background = 'transparent';
-          }}
+          className="bg-transparent text-danger px-2.5 py-1 rounded-md text-xs font-medium transition-colors hover:bg-danger-dim"
         >
           Revoke
         </button>

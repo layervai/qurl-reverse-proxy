@@ -1,0 +1,31 @@
+# Production QURL Reverse Proxy Server (frps) Configuration
+#
+# Deploy this on the public edge server (e.g., proxy.layerv.ai).
+# FRP clients (qurl-frpc) connect here to establish reverse tunnels.
+# Traefik routes https://<resource-id>.qurl.site traffic through these tunnels.
+
+# Port that frps listens on for client connections
+bindPort = 7000
+
+# HTTP virtual host proxying
+# Traefik terminates TLS and forwards to this port
+vhostHTTPPort = 443
+
+# Subdomain host for HTTP vhost routing
+# Resource IDs are used as subdomains (e.g., r_k8xqp9h2sj9.qurl.site)
+subDomainHost = "qurl.site"
+
+# Logging
+log.to = "/var/log/qurl/qurl-frps.log"
+log.level = "info"
+log.maxDays = 7
+
+# Authentication
+auth.method = "token"
+auth.token = "{{ .Envs.FRPS_AUTH_TOKEN }}"
+
+# Admin dashboard (internal only, not exposed publicly)
+webServer.addr = "127.0.0.1"
+webServer.port = 7500
+webServer.user = "admin"
+webServer.password = "{{ .Envs.FRPS_ADMIN_PASSWORD }}"

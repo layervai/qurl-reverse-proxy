@@ -14,6 +14,11 @@ export function Dashboard() {
   const [addError, setAddError] = useState<string | null>(null);
   const [addLoading, setAddLoading] = useState(false);
 
+  // Share state per service
+  const [sharingService, setSharingService] = useState<string | null>(null);
+  const [sharedLinks, setSharedLinks] = useState<Record<string, string>>({});
+  const [copiedService, setCopiedService] = useState<string | null>(null);
+
   const refreshStatus = useCallback(async () => {
     try {
       const status = await window.qurl.sidecar.status();
@@ -91,97 +96,108 @@ export function Dashboard() {
     }
   }, [refreshTunnels]);
 
+  const handleShareService = useCallback(async (name: string) => {
+    setSharingService(name);
+    setTunnelError(null);
+    try {
+      const result = await window.qurl.share.service(name);
+      if (!result.success) {
+        setTunnelError(result.error || 'Failed to share service');
+        return;
+      }
+      if (result.qurl) {
+        setSharedLinks((prev) => ({ ...prev, [name]: result.qurl!.qurl_link }));
+      }
+    } catch (err) {
+      setTunnelError(String(err));
+    } finally {
+      setSharingService(null);
+    }
+  }, []);
+
+  const handleCopyServiceLink = useCallback(async (name: string, link: string) => {
+    await navigator.clipboard.writeText(link);
+    setCopiedService(name);
+    setTimeout(() => setCopiedService(null), 2000);
+  }, []);
+
   const connectionStatus = sidecarRunning ? 'connected' : 'disconnected';
+  const toggleDisabled = tunnelLoading || (!sidecarRunning && tunnels.length === 0);
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+    <div className="flex flex-col gap-5">
+      {/* Page header */}
       <div>
-        <h1 style={{ fontSize: 22, fontWeight: 600, marginBottom: '4px' }}>Services</h1>
-        <p style={{ color: 'var(--color-text-secondary)', fontSize: 13 }}>
+        <h1 className="text-[22px] font-semibold mb-1">Connections</h1>
+        <p className="text-text-secondary text-[13px]">
           Manage tunnels to your private services.
         </p>
       </div>
 
-      {/* Tunnel control */}
+      {/* Tunnel status card */}
       <div
-        style={{
-          background: 'var(--color-bg-secondary)',
-          borderRadius: 'var(--radius-md)',
-          padding: '16px 20px',
-          border: '1px solid var(--color-border)',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-        }}
+        className={`
+          bg-surface-2 rounded-lg px-5 py-4 border flex items-center justify-between
+          transition-all duration-300
+          ${sidecarRunning
+            ? 'border-success/20 shadow-[0_0_24px_rgba(16,185,129,0.08)]'
+            : 'border-glass-border'
+          }
+        `}
       >
-        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+        <div className="flex items-center gap-3">
           <div
-            style={{
-              width: 36,
-              height: 36,
-              borderRadius: 'var(--radius-sm)',
-              background: sidecarRunning ? 'rgba(52, 211, 153, 0.1)' : 'rgba(248, 113, 113, 0.1)',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              fontSize: 18,
-            }}
+            className={`
+              w-9 h-9 rounded-md flex items-center justify-center text-lg
+              ${sidecarRunning ? 'bg-success-dim' : 'bg-danger-dim'}
+            `}
           >
             {sidecarRunning ? '\u26A1' : '\u26D4'}
           </div>
           <div>
-            <div style={{ fontWeight: 600, fontSize: 14 }}>QURL Tunnel</div>
+            <div className="font-semibold text-sm">QURL Tunnel</div>
             <StatusBadge status={connectionStatus} />
           </div>
         </div>
         <button
           onClick={handleToggleSidecar}
-          disabled={tunnelLoading || (!sidecarRunning && tunnels.length === 0)}
+          disabled={toggleDisabled}
           title={!sidecarRunning && tunnels.length === 0 ? 'Add a service first' : ''}
-          style={{
-            background: sidecarRunning ? 'rgba(248, 113, 113, 0.12)' : 'var(--gradient-accent)',
-            color: sidecarRunning ? 'var(--color-accent-red)' : '#fff',
-            padding: '8px 20px',
-            borderRadius: 'var(--radius-sm)',
-            fontWeight: 600,
-            fontSize: 13,
-            opacity: tunnelLoading || (!sidecarRunning && tunnels.length === 0) ? 0.5 : 1,
-            cursor: tunnelLoading || (!sidecarRunning && tunnels.length === 0) ? 'not-allowed' : 'pointer',
-          }}
+          className={`
+            px-5 py-2 rounded-md font-semibold text-[13px] transition-all duration-150
+            ${toggleDisabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}
+            ${sidecarRunning
+              ? 'bg-danger-dim text-danger hover:bg-[rgba(239,68,68,0.25)]'
+              : 'bg-gradient-to-br from-accent to-[#D406B9] text-white hover:brightness-110'
+            }
+          `}
         >
           {tunnelLoading ? '...' : sidecarRunning ? 'Stop' : tunnels.length === 0 ? 'Add a service first' : 'Start'}
         </button>
       </div>
 
+      {/* Error message */}
       {tunnelError && (
-        <div style={{
-          padding: '10px 14px', borderRadius: 'var(--radius-sm)',
-          background: 'rgba(248, 113, 113, 0.08)', border: '1px solid rgba(248, 113, 113, 0.2)',
-          color: 'var(--color-accent-red)', fontSize: 12,
-        }}>
+        <div className="px-3.5 py-2.5 rounded-md bg-danger-dim border border-danger-border text-danger text-xs">
           {tunnelError}
         </div>
       )}
 
       {/* Services list */}
       <div>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px' }}>
-          <h2 style={{
-            fontSize: 13, fontWeight: 600, color: 'var(--color-text-secondary)',
-            textTransform: 'uppercase', letterSpacing: '0.05em',
-          }}>
+        <div className="flex items-center justify-between mb-3">
+          <h2 className="text-[13px] font-semibold text-text-secondary uppercase tracking-wide">
             Configured Services ({tunnels.length})
           </h2>
           <button
             onClick={() => setShowAddForm(!showAddForm)}
-            style={{
-              background: showAddForm ? 'var(--color-bg-tertiary)' : 'var(--gradient-accent)',
-              color: showAddForm ? 'var(--color-text-secondary)' : '#fff',
-              padding: '6px 16px',
-              borderRadius: 'var(--radius-sm)',
-              fontWeight: 600,
-              fontSize: 12,
-            }}
+            className={`
+              px-4 py-1.5 rounded-md font-semibold text-xs transition-all duration-150
+              ${showAddForm
+                ? 'bg-surface-3 text-text-secondary hover:bg-surface-4'
+                : 'bg-gradient-to-br from-accent to-[#D406B9] text-white hover:brightness-110'
+              }
+            `}
           >
             {showAddForm ? 'Cancel' : '+ Add Service'}
           </button>
@@ -189,57 +205,44 @@ export function Dashboard() {
 
         {/* Add service form */}
         {showAddForm && (
-          <div style={{
-            background: 'var(--color-bg-secondary)', borderRadius: 'var(--radius-md)',
-            padding: '16px', border: '1px solid var(--color-border)', marginBottom: '12px',
-            display: 'flex', flexDirection: 'column', gap: '10px',
-          }}>
-            <div style={{ display: 'flex', gap: '10px' }}>
-              <div style={{ flex: 2 }}>
-                <label style={{ fontSize: 12, fontWeight: 500, color: 'var(--color-text-secondary)', marginBottom: '4px', display: 'block' }}>
+          <div className="bg-surface-2 rounded-lg p-4 border border-glass-border mb-3 flex flex-col gap-2.5">
+            <div className="flex gap-2.5">
+              <div className="flex-[2]">
+                <label className="text-xs font-medium text-text-secondary mb-1 block">
                   Target URL
                 </label>
                 <input
                   value={addTarget}
                   onChange={(e) => setAddTarget(e.target.value)}
                   placeholder="http://localhost:8080"
-                  style={{
-                    width: '100%', padding: '8px 12px', background: 'var(--color-bg-input)',
-                    border: '1px solid var(--color-border)', borderRadius: 'var(--radius-sm)',
-                    color: 'var(--color-text-primary)', fontSize: 13,
-                  }}
+                  className="w-full font-mono"
                 />
               </div>
-              <div style={{ flex: 1 }}>
-                <label style={{ fontSize: 12, fontWeight: 500, color: 'var(--color-text-secondary)', marginBottom: '4px', display: 'block' }}>
+              <div className="flex-1">
+                <label className="text-xs font-medium text-text-secondary mb-1 block">
                   Name
                 </label>
                 <input
                   value={addName}
                   onChange={(e) => setAddName(e.target.value)}
                   placeholder="My App"
-                  style={{
-                    width: '100%', padding: '8px 12px', background: 'var(--color-bg-input)',
-                    border: '1px solid var(--color-border)', borderRadius: 'var(--radius-sm)',
-                    color: 'var(--color-text-primary)', fontSize: 13,
-                  }}
+                  className="w-full"
                   onKeyDown={(e) => { if (e.key === 'Enter') handleAddService(); }}
                 />
               </div>
             </div>
             {addError && (
-              <div style={{ fontSize: 12, color: 'var(--color-accent-red)' }}>{addError}</div>
+              <div className="text-xs text-danger">{addError}</div>
             )}
-            <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+            <div className="flex justify-end">
               <button
                 onClick={handleAddService}
                 disabled={addLoading || !addTarget || !addName}
-                style={{
-                  background: 'var(--gradient-accent)', color: '#fff',
-                  padding: '8px 20px', borderRadius: 'var(--radius-sm)',
-                  fontWeight: 600, fontSize: 13,
-                  opacity: addLoading || !addTarget || !addName ? 0.5 : 1,
-                }}
+                className={`
+                  bg-gradient-to-br from-accent to-[#D406B9] text-white
+                  px-5 py-2 rounded-md font-semibold text-[13px] transition-opacity duration-150
+                  ${addLoading || !addTarget || !addName ? 'opacity-50 cursor-not-allowed' : 'hover:brightness-110'}
+                `}
               >
                 {addLoading ? 'Adding...' : 'Add Service'}
               </button>
@@ -249,62 +252,111 @@ export function Dashboard() {
 
         {/* Service cards */}
         {tunnels.length === 0 && !showAddForm ? (
-          <div style={{
-            textAlign: 'center', padding: '40px 20px', color: 'var(--color-text-muted)',
-            fontSize: 13, background: 'var(--color-bg-secondary)',
-            borderRadius: 'var(--radius-md)', border: '1px solid var(--color-border)',
-          }}>
-            No services configured. Click "+ Add Service" to expose a local service.
+          <div className="text-center py-10 px-5 text-text-muted text-[13px] bg-surface-2 rounded-lg border border-glass-border">
+            No services configured. Click &quot;+ Add Service&quot; to expose a local service.
           </div>
         ) : (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-            {tunnels.map((t) => (
-              <div
-                key={t.name}
-                style={{
-                  background: 'var(--color-bg-secondary)', borderRadius: 'var(--radius-md)',
-                  padding: '14px 16px', border: '1px solid var(--color-border)',
-                  display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-                }}
-              >
-                <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                  <div style={{
-                    width: 8, height: 8, borderRadius: '50%',
-                    background: sidecarRunning ? 'var(--color-accent-green)' : 'var(--color-text-muted)',
-                  }} />
-                  <div>
-                    <div style={{ fontWeight: 600, fontSize: 14 }}>{t.name}</div>
-                    <div style={{ fontSize: 12, color: 'var(--color-text-secondary)', fontFamily: 'var(--font-mono)' }}>
-                      {t.target}
-                      {t.subdomain && <span style={{ color: 'var(--color-text-muted)', marginLeft: 8 }}>
-                        {'\u2192'} {t.subdomain}
-                      </span>}
+          <div className="flex flex-col gap-2">
+            {tunnels.map((t) => {
+              const serviceLink = sharedLinks[t.name];
+              const isSharing = sharingService === t.name;
+              const isCopied = copiedService === t.name;
+
+              return (
+                <div
+                  key={t.name}
+                  className="bg-surface-2 rounded-lg px-4 py-3.5 border border-glass-border flex flex-col gap-2.5 hover:border-glass-border-hover transition-colors duration-150"
+                >
+                  {/* Top row */}
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                      <div
+                        className={`w-2 h-2 rounded-full ${
+                          sidecarRunning
+                            ? 'bg-success shadow-[0_0_6px_var(--color-success)]'
+                            : 'bg-text-muted'
+                        }`}
+                      />
+                      <div>
+                        <div className="font-semibold text-sm">{t.name}</div>
+                        <div className="text-xs text-text-secondary font-mono">
+                          {t.target}
+                          {t.subdomain && (
+                            <span className="text-text-muted ml-2">
+                              {'\u2192'} {t.subdomain}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-[11px] px-2 py-0.5 rounded-full bg-surface-3 text-text-muted uppercase font-medium">
+                        {t.type}
+                      </span>
+                      <button
+                        onClick={() => handleShareService(t.name)}
+                        disabled={isSharing || !sidecarRunning}
+                        title={!sidecarRunning ? 'Start the tunnel first' : 'Create a shareable QURL link'}
+                        className={`
+                          bg-accent-dim text-accent px-3 py-1 rounded-md text-xs font-semibold
+                          transition-all duration-150
+                          ${isSharing || !sidecarRunning
+                            ? 'opacity-50 cursor-not-allowed'
+                            : 'cursor-pointer hover:bg-[rgba(0,153,255,0.25)]'
+                          }
+                        `}
+                      >
+                        {isSharing ? '...' : 'Share'}
+                      </button>
+                      <button
+                        onClick={() => handleRemoveService(t.name)}
+                        className="bg-transparent text-text-muted px-2 py-1 text-base cursor-pointer hover:text-danger transition-colors duration-150"
+                        title="Remove service"
+                      >
+                        {'\u2715'}
+                      </button>
                     </div>
                   </div>
+
+                  {/* Resource ID and public URL (if available) */}
+                  {(t.resourceId || t.publicUrl) && (
+                    <div className="flex gap-4 text-[11px] text-text-muted">
+                      {t.resourceId && (
+                        <span>
+                          Resource: <span className="font-mono text-text-secondary">{t.resourceId}</span>
+                        </span>
+                      )}
+                      {t.publicUrl && (
+                        <span>
+                          Public: <span className="font-mono text-accent">{t.publicUrl}</span>
+                        </span>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Shared QURL link */}
+                  {serviceLink && (
+                    <div className="flex items-center gap-2 bg-surface-1 rounded-md px-3 py-2">
+                      <code className="flex-1 font-mono text-xs text-accent overflow-hidden text-ellipsis whitespace-nowrap">
+                        {serviceLink}
+                      </code>
+                      <button
+                        onClick={() => handleCopyServiceLink(t.name, serviceLink)}
+                        className={`
+                          px-3 py-1 rounded-md text-xs font-medium shrink-0 transition-all duration-150
+                          ${isCopied
+                            ? 'bg-success text-white'
+                            : 'bg-surface-3 text-text-primary hover:bg-surface-4'
+                          }
+                        `}
+                      >
+                        {isCopied ? 'Copied!' : 'Copy'}
+                      </button>
+                    </div>
+                  )}
                 </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                  <span style={{
-                    fontSize: 11, padding: '2px 8px', borderRadius: '10px',
-                    background: 'var(--color-bg-tertiary)', color: 'var(--color-text-muted)',
-                    textTransform: 'uppercase', fontWeight: 500,
-                  }}>
-                    {t.type}
-                  </span>
-                  <button
-                    onClick={() => handleRemoveService(t.name)}
-                    style={{
-                      background: 'transparent', color: 'var(--color-text-muted)',
-                      padding: '4px 8px', fontSize: 16, cursor: 'pointer',
-                    }}
-                    title="Remove service"
-                    onMouseEnter={(e) => { e.currentTarget.style.color = 'var(--color-accent-red)'; }}
-                    onMouseLeave={(e) => { e.currentTarget.style.color = 'var(--color-text-muted)'; }}
-                  >
-                    {'\u2715'}
-                  </button>
-                </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </div>

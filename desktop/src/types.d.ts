@@ -44,8 +44,81 @@ interface TunnelService {
   target: string;
   localPort: number;
   subdomain?: string;
+  resourceId?: string;
+  publicUrl?: string;
   status: 'connected' | 'disconnected' | 'error';
 }
+
+// --- QURL Types ---
+
+interface AccessPolicy {
+  ip_allowlist?: string[];
+  ip_denylist?: string[];
+  geo_allowlist?: string[];
+  geo_denylist?: string[];
+  ai_agent_policy?: {
+    block_all?: boolean;
+    deny_categories?: string[];
+    allow_categories?: string[];
+  };
+  user_agent_allow_regex?: string;
+  user_agent_deny_regex?: string;
+}
+
+interface QURLCreateInput {
+  target_url: string;
+  expires_in?: string;
+  one_time_use?: boolean;
+  max_sessions?: number;
+  session_duration?: string;
+  label?: string;
+  access_policy?: AccessPolicy;
+}
+
+interface QURLInfo {
+  qurl_id: string;
+  resource_id: string;
+  qurl_link: string;
+  qurl_site?: string;
+  target_url: string;
+  status: 'active' | 'expired' | 'revoked';
+  expires_at: string | null;
+  one_time_use: boolean;
+  created_at: string;
+  label?: string;
+}
+
+interface QURLCreateResult extends IpcResult {
+  qurl?: QURLInfo;
+}
+
+interface QURLListResult extends IpcResult {
+  qurls?: QURLInfo[];
+  has_more?: boolean;
+  next_cursor?: string;
+}
+
+interface URLDetectResult extends IpcResult {
+  isLocal: boolean;
+  hasRoute: boolean;
+  routeName?: string;
+}
+
+interface ResourceTypeDefaults {
+  expires_in: string;
+  one_time_use: boolean;
+  max_sessions?: number;
+  session_duration?: string;
+  access_policy?: AccessPolicy;
+}
+
+interface QURLDefaults {
+  url: ResourceTypeDefaults;
+  file: ResourceTypeDefaults;
+  service: ResourceTypeDefaults;
+}
+
+// --- Bridge ---
 
 interface QUrlBridge {
   auth: {
@@ -65,9 +138,23 @@ interface QUrlBridge {
     remove: (name: string) => Promise<IpcResult>;
   };
   share: {
-    file: (filePath: string, name: string) => Promise<ShareResult>;
+    file: (filePath: string, name: string, options?: Partial<QURLCreateInput>) => Promise<QURLCreateResult>;
+    url: (targetUrl: string, options?: Partial<QURLCreateInput>) => Promise<QURLCreateResult>;
+    service: (serviceName: string, options?: Partial<QURLCreateInput>) => Promise<QURLCreateResult>;
     stop: (id: string) => Promise<IpcResult>;
     list: () => Promise<ShareInfo[]>;
+    detectUrl: (url: string) => Promise<URLDetectResult>;
+  };
+  qurls: {
+    create: (input: QURLCreateInput) => Promise<QURLCreateResult>;
+    list: (params?: { limit?: number; cursor?: string; status?: string }) => Promise<QURLListResult>;
+    get: (id: string) => Promise<IpcResult & { qurl?: QURLInfo }>;
+    revoke: (resourceId: string) => Promise<IpcResult>;
+    mintLink: (resourceId: string, input?: Partial<QURLCreateInput>) => Promise<QURLCreateResult>;
+  };
+  settings: {
+    getDefaults: () => Promise<QURLDefaults>;
+    setDefaults: (defaults: Partial<QURLDefaults>) => Promise<IpcResult>;
   };
   dialog: {
     openFile: () => Promise<string[] | null>;

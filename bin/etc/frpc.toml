@@ -1,5 +1,5 @@
 # FRP server address and port to connect to
-serverAddr = "acdemo.opennhp.org"
+serverAddr = "proxy.layerv.ai"
 serverPort = 7000
 
 # Log to file instead of console
@@ -21,7 +21,7 @@ webServer.password = "{{ .Envs.QURL_MACHINE_ID }}"
 
 # Proxy: expose local static file server (port 8888) via subdomain
 # Subdomain is dynamically set to the machine ID at startup
-# Accessible at http://<machine-id>.ac.opennhp.org
+# Accessible at https://<machine-id>.qurl.site
 [[proxies]]
 name = "file-server"
 type = "http"
@@ -31,7 +31,7 @@ subdomain = "{{ .Envs.QURL_MACHINE_ID }}"
 
 # Proxy: expose admin API for remote config management by the server
 # Protected by basic auth (user: admin, password: machine ID)
-# Accessible at http://<machine-id>-admin.ac.opennhp.org:6060
+# Accessible at https://<machine-id>-admin.qurl.site
 [[proxies]]
 name = "admin-api"
 type = "http"

@@ -9,7 +9,6 @@ export function Login({ onAuthenticated }: LoginProps) {
   const [error, setError] = useState<string | null>(null);
   const [env, setEnv] = useState('production');
 
-  // API key sign-in state
   const [showKeyInput, setShowKeyInput] = useState(false);
   const [apiKey, setApiKey] = useState('');
   const [showKey, setShowKey] = useState(false);
@@ -17,7 +16,6 @@ export function Login({ onAuthenticated }: LoginProps) {
   const [validatingKey, setValidatingKey] = useState(false);
 
   useEffect(() => {
-    // Check if already signed in from a previous session
     window.qurl.auth.status().then((status) => {
       if (status.signedIn) {
         onAuthenticated('account', status.email || undefined, status.apiKeyHint || undefined);
@@ -26,15 +24,10 @@ export function Login({ onAuthenticated }: LoginProps) {
     });
   }, [onAuthenticated]);
 
-  // Derive environment badge from key prefix as the user types
   useEffect(() => {
-    if (apiKey.startsWith('lv_live_')) {
-      setKeyEnv('production');
-    } else if (apiKey.startsWith('lv_test_')) {
-      setKeyEnv('staging');
-    } else {
-      setKeyEnv(null);
-    }
+    if (apiKey.startsWith('lv_live_')) setKeyEnv('production');
+    else if (apiKey.startsWith('lv_test_')) setKeyEnv('staging');
+    else setKeyEnv(null);
   }, [apiKey]);
 
   const handleSignIn = async () => {
@@ -42,11 +35,8 @@ export function Login({ onAuthenticated }: LoginProps) {
     setError(null);
     try {
       const result = await window.qurl.auth.signIn();
-      if (result.success) {
-        onAuthenticated('account', result.email);
-      } else {
-        setError(result.error || 'Sign-in failed');
-      }
+      if (result.success) onAuthenticated('account', result.email);
+      else setError(result.error || 'Sign-in failed');
     } catch (err) {
       setError(String(err));
     } finally {
@@ -56,21 +46,15 @@ export function Login({ onAuthenticated }: LoginProps) {
 
   const handleKeySignIn = async () => {
     setError(null);
-
-    // Client-side prefix validation
     if (!apiKey.startsWith('lv_live_') && !apiKey.startsWith('lv_test_')) {
-      setError('Invalid API key prefix. Keys must start with lv_live_ or lv_test_.');
+      setError('API keys must start with lv_live_ or lv_test_');
       return;
     }
-
     setValidatingKey(true);
     try {
       const result = await window.qurl.auth.signInWithKey(apiKey);
-      if (result.success) {
-        onAuthenticated('account', undefined, result.apiKeyHint);
-      } else {
-        setError(result.error || 'API key validation failed');
-      }
+      if (result.success) onAuthenticated('account', undefined, result.apiKeyHint);
+      else setError(result.error || 'API key validation failed');
     } catch (err) {
       setError(String(err));
     } finally {
@@ -78,231 +62,133 @@ export function Login({ onAuthenticated }: LoginProps) {
     }
   };
 
-  const handleGuest = () => {
-    onAuthenticated('guest');
-  };
-
   const busy = signingIn || validatingKey;
 
   return (
-    <div
-      style={{
-        display: 'flex',
-        flexDirection: 'column',
-        alignItems: 'center',
-        justifyContent: 'center',
-        height: '100%',
-        padding: '40px',
-        textAlign: 'center',
-      }}
-    >
-      {/* Drag region for macOS titlebar */}
-      <div className="titlebar-drag" style={{ position: 'fixed', top: 0, left: 0, right: 0, height: 44 }} />
+    <div className="flex flex-col items-center justify-center h-full p-10 text-center relative">
+      <div className="titlebar-drag fixed top-0 left-0 right-0 h-[44px]" />
 
-      <div
-        style={{
-          fontSize: 42,
-          fontWeight: 700,
-          background: 'var(--gradient-accent)',
-          WebkitBackgroundClip: 'text',
-          WebkitTextFillColor: 'transparent',
-          letterSpacing: '-0.02em',
-          marginBottom: '8px',
-        }}
-      >
-        QURL
+      {/* Background glow */}
+      <div className="absolute top-1/3 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[400px] h-[400px] bg-[radial-gradient(circle,rgba(0,153,255,0.08)_0%,transparent_70%)] pointer-events-none" />
+
+      {/* Logo */}
+      <div className="mb-8 relative">
+        <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-[#0099FF] to-[#D406B9] flex items-center justify-center mx-auto mb-4 shadow-[0_0_40px_rgba(0,153,255,0.2)]">
+          <svg width="28" height="28" viewBox="0 0 24 24" fill="white">
+            <path d="M12 1L3 5v6c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V5l-9-4z" />
+          </svg>
+        </div>
+        <h1 className="gradient-text text-4xl font-extrabold tracking-tight">QURL</h1>
+        <p className="text-text-secondary text-sm mt-2 max-w-[280px]">
+          Secure, time-limited links for URLs, files, and private services.
+        </p>
       </div>
-      <p style={{ color: 'var(--color-text-secondary)', fontSize: 15, marginBottom: '40px', maxWidth: 340 }}>
-        Share files and services securely with time-limited, encrypted links.
-      </p>
 
-      {/* 1. Sign in with Browser (OAuth) */}
-      <button
-        onClick={handleSignIn}
-        disabled={busy}
-        style={{
-          background: 'var(--gradient-accent)',
-          color: '#fff',
-          padding: '14px 48px',
-          borderRadius: 'var(--radius-md)',
-          fontWeight: 600,
-          fontSize: 15,
-          cursor: busy ? 'wait' : 'pointer',
-          opacity: busy ? 0.7 : 1,
-          transition: 'opacity var(--transition-fast)',
-          marginBottom: '12px',
-          width: 300,
-        }}
-        onMouseEnter={(e) => { if (!busy) e.currentTarget.style.opacity = '0.9'; }}
-        onMouseLeave={(e) => { if (!busy) e.currentTarget.style.opacity = '1'; }}
-      >
-        {signingIn ? 'Opening browser...' : 'Sign in with Browser'}
-      </button>
+      {/* Auth options */}
+      <div className="w-[320px] flex flex-col gap-2.5">
+        {/* Browser sign-in */}
+        <button
+          onClick={handleSignIn}
+          disabled={busy}
+          className={[
+            'bg-gradient-to-br from-[#0099FF] to-[#D406B9] text-white',
+            'py-3 rounded-lg font-semibold text-sm w-full',
+            'transition-all duration-200',
+            busy ? 'cursor-wait opacity-60' : 'cursor-pointer hover:shadow-[0_0_24px_rgba(0,153,255,0.3)] hover:scale-[1.01] active:scale-[0.99]',
+          ].join(' ')}
+        >
+          {signingIn ? 'Opening browser...' : 'Sign in with Browser'}
+        </button>
 
-      {/* 2. Sign in with API Key (expandable) */}
-      <button
-        onClick={() => { setShowKeyInput(!showKeyInput); setError(null); }}
-        disabled={busy}
-        style={{
-          background: 'var(--color-bg-tertiary)',
-          color: 'var(--color-text-secondary)',
-          padding: '14px 48px',
-          borderRadius: 'var(--radius-md)',
-          fontWeight: 500,
-          fontSize: 14,
-          cursor: 'pointer',
-          transition: 'all var(--transition-fast)',
-          width: 300,
-          marginBottom: '4px',
-        }}
-        onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--color-bg-hover)'; }}
-        onMouseLeave={(e) => { e.currentTarget.style.background = 'var(--color-bg-tertiary)'; }}
-      >
-        Sign in with API Key
-      </button>
+        {/* API key toggle */}
+        <button
+          onClick={() => { setShowKeyInput(!showKeyInput); setError(null); }}
+          disabled={busy}
+          className="bg-surface-2 text-text-secondary py-3 rounded-lg font-medium text-sm cursor-pointer transition-colors w-full hover:bg-surface-3 border border-glass-border"
+        >
+          Sign in with API Key
+        </button>
 
-      {showKeyInput && (
-        <div style={{
-          width: 300,
-          marginTop: '8px',
-          marginBottom: '8px',
-          padding: '16px',
-          borderRadius: 'var(--radius-md)',
-          background: 'var(--color-bg-secondary)',
-          border: '1px solid var(--color-border)',
-          textAlign: 'left',
-        }}>
-          <label style={{ fontSize: 12, color: 'var(--color-text-secondary)', display: 'block', marginBottom: '6px' }}>
-            API Key
-            {keyEnv && (
-              <span style={{
-                marginLeft: '8px',
-                fontSize: 10,
-                fontWeight: 600,
-                padding: '2px 6px',
-                borderRadius: 'var(--radius-sm)',
-                background: keyEnv === 'production' ? 'rgba(34, 197, 94, 0.12)' : 'rgba(234, 179, 8, 0.12)',
-                color: keyEnv === 'production' ? '#22c55e' : '#eab308',
-              }}>
-                {keyEnv === 'production' ? 'Production' : 'Staging'}
-              </span>
-            )}
-          </label>
-          <div style={{ position: 'relative' }}>
-            <input
-              type={showKey ? 'text' : 'password'}
-              value={apiKey}
-              onChange={(e) => setApiKey(e.target.value)}
-              placeholder="lv_live_..."
-              disabled={validatingKey}
-              style={{
-                width: '100%',
-                padding: '10px 36px 10px 10px',
-                borderRadius: 'var(--radius-sm)',
-                border: '1px solid var(--color-border)',
-                background: 'var(--color-bg-primary)',
-                color: 'var(--color-text-primary)',
-                fontSize: 13,
-                fontFamily: 'monospace',
-                boxSizing: 'border-box',
-              }}
-              onKeyDown={(e) => { if (e.key === 'Enter' && apiKey) handleKeySignIn(); }}
-            />
+        {/* API key form */}
+        {showKeyInput && (
+          <div className="p-4 rounded-lg bg-surface-2 border border-glass-border text-left animate-in">
+            <label className="text-[11px] text-text-muted block mb-1.5 font-medium">
+              API Key
+              {keyEnv && (
+                <span className={[
+                  'ml-2 text-[10px] font-semibold py-px px-1.5 rounded',
+                  keyEnv === 'production'
+                    ? 'bg-[rgba(16,185,129,0.12)] text-success'
+                    : 'bg-[rgba(245,158,11,0.12)] text-warning',
+                ].join(' ')}>
+                  {keyEnv === 'production' ? 'Production' : 'Staging'}
+                </span>
+              )}
+            </label>
+            <div className="relative">
+              <input
+                type={showKey ? 'text' : 'password'}
+                value={apiKey}
+                onChange={(e) => setApiKey(e.target.value)}
+                placeholder="lv_live_..."
+                disabled={validatingKey}
+                className="w-full py-2.5 pl-3 pr-12 rounded-md border border-glass-border bg-surface-0 text-text-primary text-[13px] font-mono"
+                onKeyDown={(e) => { if (e.key === 'Enter' && apiKey) handleKeySignIn(); }}
+              />
+              <button
+                type="button"
+                onClick={() => setShowKey(!showKey)}
+                className="absolute right-2 top-1/2 -translate-y-1/2 bg-transparent text-text-muted text-[11px] cursor-pointer py-1 px-1.5 rounded hover:text-text-secondary transition-colors"
+              >
+                {showKey ? 'Hide' : 'Show'}
+              </button>
+            </div>
             <button
-              type="button"
-              onClick={() => setShowKey(!showKey)}
-              style={{
-                position: 'absolute',
-                right: '8px',
-                top: '50%',
-                transform: 'translateY(-50%)',
-                background: 'transparent',
-                color: 'var(--color-text-muted)',
-                fontSize: 12,
-                cursor: 'pointer',
-                padding: '2px 4px',
-              }}
-              title={showKey ? 'Hide key' : 'Show key'}
+              onClick={handleKeySignIn}
+              disabled={!apiKey || validatingKey}
+              className={[
+                'mt-3 w-full py-2.5 rounded-md font-semibold text-[13px] transition-all duration-150',
+                apiKey && !validatingKey
+                  ? 'bg-accent text-white cursor-pointer hover:bg-[#0088ee]'
+                  : 'bg-surface-3 text-text-muted cursor-not-allowed',
+              ].join(' ')}
             >
-              {showKey ? 'Hide' : 'Show'}
+              {validatingKey ? 'Validating...' : 'Connect'}
             </button>
           </div>
-          <button
-            onClick={handleKeySignIn}
-            disabled={!apiKey || validatingKey}
-            style={{
-              marginTop: '10px',
-              width: '100%',
-              padding: '10px',
-              borderRadius: 'var(--radius-sm)',
-              background: apiKey ? 'var(--gradient-accent)' : 'var(--color-bg-tertiary)',
-              color: apiKey ? '#fff' : 'var(--color-text-muted)',
-              fontWeight: 600,
-              fontSize: 13,
-              cursor: !apiKey || validatingKey ? 'not-allowed' : 'pointer',
-              opacity: validatingKey ? 0.7 : 1,
-              transition: 'all var(--transition-fast)',
-            }}
-          >
-            {validatingKey ? 'Validating...' : 'Connect'}
-          </button>
-          <p style={{ fontSize: 10, color: 'var(--color-text-muted)', marginTop: '8px', marginBottom: 0 }}>
-            Get your API key from the LayerV portal.
-          </p>
+        )}
+
+        {/* Divider */}
+        <div className="flex items-center gap-3 my-1">
+          <div className="flex-1 h-px bg-glass-border" />
+          <span className="text-[10px] text-text-muted uppercase tracking-widest">or</span>
+          <div className="flex-1 h-px bg-glass-border" />
         </div>
-      )}
 
-      {/* 3. Continue as Guest */}
-      <button
-        onClick={handleGuest}
-        disabled={busy}
-        style={{
-          background: 'var(--color-bg-tertiary)',
-          color: 'var(--color-text-secondary)',
-          padding: '14px 48px',
-          borderRadius: 'var(--radius-md)',
-          fontWeight: 500,
-          fontSize: 14,
-          cursor: 'pointer',
-          transition: 'all var(--transition-fast)',
-          width: 300,
-          marginTop: showKeyInput ? '4px' : '0px',
-        }}
-        onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--color-bg-hover)'; }}
-        onMouseLeave={(e) => { e.currentTarget.style.background = 'var(--color-bg-tertiary)'; }}
-      >
-        Continue as Guest
-      </button>
+        {/* Guest */}
+        <button
+          onClick={() => onAuthenticated('guest')}
+          disabled={busy}
+          className="text-text-muted py-2.5 rounded-lg text-[13px] cursor-pointer transition-colors hover:text-text-secondary bg-transparent"
+        >
+          Continue as Guest
+        </button>
+      </div>
 
+      {/* Error */}
       {error && (
-        <div style={{
-          marginTop: '20px',
-          padding: '12px 20px',
-          borderRadius: 'var(--radius-md)',
-          background: 'rgba(248, 113, 113, 0.08)',
-          border: '1px solid rgba(248, 113, 113, 0.2)',
-          color: 'var(--color-accent-red)',
-          fontSize: 13,
-          maxWidth: 400,
-          textAlign: 'left',
-          whiteSpace: 'pre-wrap',
-        }}>
+        <div className="mt-5 py-2.5 px-4 rounded-lg bg-[rgba(239,68,68,0.06)] border border-[rgba(239,68,68,0.15)] text-danger text-[13px] max-w-[360px] text-left animate-in">
           {error}
         </div>
       )}
 
-      <p style={{ color: 'var(--color-text-muted)', fontSize: 11, marginTop: '32px' }}>
-        An account is required to create shareable QURL links.
-        <br />
+      <p className="text-text-muted text-[11px] mt-8 max-w-[280px] leading-relaxed">
+        Sign in to create shareable QURL links.
         Guest mode allows local tunnel management only.
       </p>
 
-      <div style={{
-        position: 'fixed', bottom: 16, right: 16,
-        fontSize: 10, color: 'var(--color-text-muted)',
-        background: 'var(--color-bg-tertiary)',
-        padding: '3px 8px', borderRadius: 'var(--radius-sm)',
-      }}>
+      {/* Environment badge */}
+      <div className="fixed bottom-3 right-3 text-[10px] text-text-muted bg-surface-2 py-0.5 px-2 rounded font-mono border border-glass-border">
         {env}
       </div>
     </div>

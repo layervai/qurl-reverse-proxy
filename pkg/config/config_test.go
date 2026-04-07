@@ -130,13 +130,19 @@ routes:
     local_port: 80
     subdomain: app
 `
-	// Missing server.addr is allowed (routes can be added before server is configured)
+	// Missing server.addr gets default applied
 	cfg, err := Load(writeConfig(t, yaml))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if len(cfg.Routes) != 1 {
 		t.Errorf("expected 1 route, got %d", len(cfg.Routes))
+	}
+	if cfg.Server.Addr != "proxy.layerv.ai" {
+		t.Errorf("server.addr = %q, want default %q", cfg.Server.Addr, "proxy.layerv.ai")
+	}
+	if cfg.Server.PublicDomain != "qurl.site" {
+		t.Errorf("server.public_domain = %q, want default %q", cfg.Server.PublicDomain, "qurl.site")
 	}
 }
 
