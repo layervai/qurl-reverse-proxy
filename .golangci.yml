@@ -17,7 +17,3 @@ linters:
 
 run:
   timeout: 5m
-  exclude-dirs:
-    - third_party
-    - web/frpc/dist
-    - .claude
