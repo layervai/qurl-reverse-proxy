@@ -24,7 +24,7 @@ const AUTH_CONFIGS: Record<string, AuthConfig> = {
   staging: {
     domain: 'dev-q1kiedn8knbutena.us.auth0.com',
     clientId: 'hRIdH8XZrWwKdQXzqIG4Csyq2IdZf9OF',
-    audience: 'https://api.layerv.xyz',
+    audience: '', // Dev tenant — no custom API registered yet
     redirectPort: 19836,
   },
 };
@@ -81,7 +81,10 @@ export async function signIn(): Promise<AuthTokens> {
   authUrl.searchParams.set('client_id', config.clientId);
   authUrl.searchParams.set('redirect_uri', redirectUri);
   authUrl.searchParams.set('scope', 'openid profile email offline_access');
-  authUrl.searchParams.set('audience', config.audience);
+  // Only include audience if configured — dev tenants may not have an API registered
+  if (config.audience) {
+    authUrl.searchParams.set('audience', config.audience);
+  }
   authUrl.searchParams.set('state', state);
   authUrl.searchParams.set('code_challenge', codeChallenge);
   authUrl.searchParams.set('code_challenge_method', 'S256');
