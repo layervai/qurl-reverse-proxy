@@ -75,13 +75,12 @@ func (m *systemdManager) Uninstall() error {
 
 	// Determine which level is installed.
 	userLevel := false
-	unitPath := systemPath
+	unitPath := systemPath // default; overwritten below if user-level
 	if _, err := os.Stat(userPath); err == nil {
 		userLevel = true
 		unitPath = userPath
 	} else if _, err := os.Stat(systemPath); err == nil {
 		userLevel = false
-		unitPath = systemPath
 	} else {
 		return fmt.Errorf("service is not installed")
 	}

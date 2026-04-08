@@ -1,6 +1,6 @@
 module github.com/layervai/qurl-reverse-proxy
 
-go 1.25.6
+go 1.25.9
 
 require (
 	github.com/OpenNHP/opennhp/endpoints v0.0.0-20260118020651-91dcec886336
