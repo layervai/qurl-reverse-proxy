@@ -63,7 +63,6 @@ export function DropZone({ onDrop, disabled = false }: DropZoneProps) {
     if (disabled) return;
     const paths = await window.qurl.dialog.openFile();
     if (paths && paths.length > 0) {
-      // Create synthetic File objects with the path info
       const files = paths.map((p) => {
         const name = p.split('/').pop() || p.split('\\').pop() || p;
         const file = new File([], name);
@@ -82,29 +81,50 @@ export function DropZone({ onDrop, disabled = false }: DropZoneProps) {
       onDrop={handleDrop}
       onClick={handleBrowse}
       className={`
-        border-2 border-dashed rounded-xl px-8 py-12 text-center
-        transition-all duration-300 min-h-[200px]
-        flex flex-col items-center justify-center gap-3
+        border-2 border-dashed rounded-xl px-6 py-8 text-center
+        transition-all duration-300 min-h-[130px]
+        flex flex-col items-center justify-center gap-2
         ${disabled ? 'cursor-not-allowed opacity-50' : 'cursor-pointer'}
         ${isDragging
-          ? 'border-accent bg-accent-dim'
+          ? 'border-accent bg-accent-dim scale-[1.005]'
           : 'border-glass-border bg-surface-2 hover:border-glass-border-hover hover:bg-surface-hover'
         }
       `}
     >
-      <div className={`text-5xl leading-none ${isDragging ? 'opacity-90' : 'opacity-60'}`}>
-        {isDragging ? '\u2193' : '\u2B06'}
-      </div>
-      <div
-        className={`
-          text-base font-medium transition-colors duration-200
-          ${isDragging ? 'text-accent' : 'text-text-primary'}
-        `}
-      >
-        {isDragging ? 'Release to share' : 'Drop files here'}
-      </div>
-      <div className="text-[13px] text-text-secondary">
-        or click to browse files and folders
+      <div className="flex items-center gap-3">
+        <svg
+          className={`w-8 h-8 transition-colors duration-200 ${isDragging ? 'text-accent' : 'text-text-muted'}`}
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="1.5"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        >
+          {isDragging ? (
+            <>
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+              <polyline points="7 10 12 15 17 10" />
+              <line x1="12" y1="15" x2="12" y2="3" />
+            </>
+          ) : (
+            <>
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+              <polyline points="17 8 12 3 7 8" />
+              <line x1="12" y1="3" x2="12" y2="15" />
+            </>
+          )}
+        </svg>
+        <div className="text-left">
+          <div
+            className={`text-sm font-semibold transition-colors duration-200 ${isDragging ? 'text-accent' : 'text-text-primary'}`}
+          >
+            {isDragging ? 'Release to share' : 'Drop files here'}
+          </div>
+          <div className="text-[12px] text-text-muted">
+            or click to browse
+          </div>
+        </div>
       </div>
     </div>
   );

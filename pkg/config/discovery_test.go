@@ -49,7 +49,7 @@ func TestDiscover_CWD(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { os.Chdir(orig) })
+	t.Cleanup(func() { _ = os.Chdir(orig) })
 
 	if err := os.Chdir(dir); err != nil {
 		t.Fatal(err)
@@ -84,8 +84,8 @@ func TestDiscover_UserConfigDir(t *testing.T) {
 	// Make sure CWD does not contain the config.
 	emptyDir := t.TempDir()
 	orig, _ := os.Getwd()
-	t.Cleanup(func() { os.Chdir(orig) })
-	os.Chdir(emptyDir)
+	t.Cleanup(func() { _ = os.Chdir(orig) })
+	_ = os.Chdir(emptyDir)
 
 	got, isLegacy, err := Discover("")
 	if err != nil {
@@ -106,8 +106,8 @@ func TestDiscover_NothingFound(t *testing.T) {
 	t.Setenv("HOME", emptyHome)
 
 	orig, _ := os.Getwd()
-	t.Cleanup(func() { os.Chdir(orig) })
-	os.Chdir(emptyDir)
+	t.Cleanup(func() { _ = os.Chdir(orig) })
+	_ = os.Chdir(emptyDir)
 
 	_, _, err := Discover("")
 	if err == nil {

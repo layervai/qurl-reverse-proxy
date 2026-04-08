@@ -29,3 +29,6 @@ webServer.addr = "127.0.0.1"
 webServer.port = 7500
 webServer.user = "admin"
 webServer.password = "{{ .Envs.FRPS_ADMIN_PASSWORD }}"
+
+# Branded 404 page for expired/revoked/missing QURL links
+custom404Page = "/opt/qurl/404.html"

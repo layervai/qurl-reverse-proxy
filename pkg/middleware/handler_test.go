@@ -112,7 +112,7 @@ func (f *handlerTestFixture) newMiddleware(t *testing.T, downstream http.Handler
 // downstreamOK is a simple handler that writes "OK" when reached.
 var downstreamOK = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
-	w.Write([]byte("OK"))
+	_, _ = w.Write([]byte("OK"))
 })
 
 func TestHandler_NoToken(t *testing.T) {

@@ -11,12 +11,11 @@ const EXPIRY_OPTIONS = [
   { label: 'No expiry', value: '' },
 ];
 
-type DefaultsTab = 'url' | 'file' | 'service';
+type DefaultsTab = 'url' | 'file';
 
 const DEFAULTS_TABS: { id: DefaultsTab; label: string; desc: string }[] = [
-  { id: 'url', label: 'URLs', desc: 'Public or private web URLs. Public URLs are proxied through LayerV. Private URLs (localhost, internal IPs) require an active tunnel connection.' },
-  { id: 'file', label: 'Files', desc: 'Local files and images shared from your machine. Files are served through a secure tunnel — the tunnel must be running for recipients to download.' },
-  { id: 'service', label: 'Services', desc: 'Running services on your private network (web apps, APIs, dashboards). Requires a tunnel connection configured in Connections.' },
+  { id: 'url', label: 'Links', desc: 'All URL-based QURLs — public websites and local/private services. Local URLs are automatically tunneled.' },
+  { id: 'file', label: 'Files', desc: 'Local files and images shared from your machine. Files are served through a secure tunnel — the tunnel starts automatically.' },
 ];
 
 function defaultsToOptions(d: ResourceTypeDefaults): Partial<QURLCreateInput> {
@@ -48,9 +47,9 @@ export function Settings() {
   // QURL defaults
   const [defaultsTab, setDefaultsTab] = useState<DefaultsTab>('url');
   const [defaults, setDefaults] = useState<QURLDefaults>({
-    url: { expires_in: '1h', one_time_use: false },
-    file: { expires_in: '24h', one_time_use: false },
-    service: { expires_in: '1h', one_time_use: false },
+    url: { expires_in: '24h', one_time_use: false },
+    file: { expires_in: '1h', one_time_use: true },
+    service: { expires_in: '7d', one_time_use: false },
   });
 
   useEffect(() => {
@@ -104,19 +103,19 @@ export function Settings() {
   const currentDefaults = defaults[defaultsTab];
 
   return (
-    <div className="flex flex-col gap-6">
+    <div className="flex flex-col gap-5">
       {/* Page header */}
       <div>
-        <h1 className="text-[22px] font-semibold mb-1">Settings</h1>
+        <h1 className="text-xl font-semibold tracking-tight mb-1">Settings</h1>
         <p className="text-text-secondary text-[13px]">
           Configure your QURL Desktop preferences.
         </p>
       </div>
 
       {/* Account */}
-      <div className="bg-surface-2 rounded-lg p-5 border border-glass-border flex items-center justify-between">
+      <div className="bg-surface-2 rounded-xl p-5 border border-glass-border flex items-center justify-between">
         <div>
-          <div className="font-semibold text-[15px] mb-1">Account</div>
+          <div className="font-semibold text-sm mb-1">Account</div>
           <p className="text-xs text-text-secondary mt-1">
             {isSignedIn ? 'Signed in. Your shares sync across devices.' : 'Sign in to create shareable QURL links.'}
           </p>
@@ -124,10 +123,10 @@ export function Settings() {
         <button
           onClick={handleSignIn}
           className={`
-            px-5 py-2 rounded-md font-semibold text-[13px] transition-all duration-150
+            px-5 py-2 rounded-lg font-semibold text-[13px] transition-all duration-150
             ${isSignedIn
-              ? 'bg-surface-3 text-text-secondary'
-              : 'bg-gradient-to-br from-accent to-[#D406B9] text-white hover:brightness-110'
+              ? 'bg-surface-3 text-text-secondary cursor-default'
+              : 'bg-gradient-to-r from-accent to-[#D406B9] text-white cursor-pointer hover:shadow-[0_0_20px_rgba(0,153,255,0.25)]'
             }
           `}
         >
@@ -137,22 +136,22 @@ export function Settings() {
 
       {/* QURL Defaults */}
       <div>
-        <div className="font-semibold text-[15px] mb-3">QURL Defaults</div>
+        <div className="font-semibold text-sm mb-3">QURL Defaults</div>
         <p className="text-xs text-text-secondary mb-3.5">
           Default settings applied when creating new QURLs by type.
         </p>
 
-        {/* Tabs */}
-        <div className="flex gap-0.5 bg-surface-3 rounded-md p-0.5 mb-3.5 w-fit">
+        {/* Tabs — now consistent with Share/Resources tabs */}
+        <div className="flex gap-0.5 bg-surface-2 rounded-lg p-1 mb-3.5 w-fit border border-glass-border">
           {DEFAULTS_TABS.map((tab) => (
             <button
               key={tab.id}
               onClick={() => setDefaultsTab(tab.id)}
               className={`
-                px-[18px] py-1.5 rounded-md text-[13px] cursor-pointer transition-all duration-150
+                px-3.5 py-1.5 rounded-md text-[13px] font-medium cursor-pointer transition-all duration-150
                 ${defaultsTab === tab.id
-                  ? 'bg-surface-2 text-text-primary font-semibold shadow-sm'
-                  : 'bg-transparent text-text-secondary font-normal hover:text-text-primary'
+                  ? 'bg-surface-0 text-text-primary shadow-sm'
+                  : 'text-text-muted hover:text-text-secondary'
                 }
               `}
             >
@@ -167,7 +166,7 @@ export function Settings() {
         </p>
 
         {/* Tab content */}
-        <div className="bg-surface-2 rounded-lg p-4 border border-glass-border">
+        <div className="bg-surface-2 rounded-xl p-4 border border-glass-border">
           {/* Default expiry dropdown */}
           <div className="mb-3">
             <label className="text-xs font-medium text-text-secondary mb-1 block">
@@ -190,7 +189,7 @@ export function Settings() {
             </select>
           </div>
 
-          {/* One-time-use toggle */}
+          {/* One-time-use toggle — standardized size */}
           <div className="flex items-center gap-2 mb-3">
             <button
               onClick={() => {
@@ -200,14 +199,14 @@ export function Settings() {
                 });
               }}
               className={`
-                relative w-9 h-5 rounded-full shrink-0 transition-colors duration-200
+                relative w-10 h-[22px] rounded-full shrink-0 transition-colors duration-200
                 ${currentDefaults.one_time_use ? 'bg-accent' : 'bg-surface-3'}
               `}
             >
               <span
                 className={`
-                  absolute top-0.5 w-4 h-4 rounded-full bg-white shadow-sm transition-[left] duration-200
-                  ${currentDefaults.one_time_use ? 'left-[18px]' : 'left-0.5'}
+                  absolute top-[3px] w-4 h-4 rounded-full bg-white shadow-sm transition-[left] duration-200
+                  ${currentDefaults.one_time_use ? 'left-[21px]' : 'left-[3px]'}
                 `}
               />
             </button>
@@ -231,8 +230,8 @@ export function Settings() {
         </div>
       </div>
 
-      {/* Auto-start toggle */}
-      <div className="flex items-center justify-between bg-surface-2 rounded-lg p-4 border border-glass-border">
+      {/* Auto-start toggle — standardized */}
+      <div className="flex items-center justify-between bg-surface-2 rounded-xl p-4 border border-glass-border">
         <div>
           <div className="font-semibold text-[13px]">Auto-start Tunnel</div>
           <p className="text-xs text-text-secondary mt-1">
@@ -242,21 +241,21 @@ export function Settings() {
         <button
           onClick={() => setAutoStart(!autoStart)}
           className={`
-            relative w-11 h-6 rounded-full shrink-0 transition-colors duration-200
+            relative w-10 h-[22px] rounded-full shrink-0 transition-colors duration-200
             ${autoStart ? 'bg-accent' : 'bg-surface-3'}
           `}
         >
           <span
             className={`
-              absolute top-[3px] w-[18px] h-[18px] rounded-full bg-white shadow-sm transition-[left] duration-200
-              ${autoStart ? 'left-[23px]' : 'left-[3px]'}
+              absolute top-[3px] w-4 h-4 rounded-full bg-white shadow-sm transition-[left] duration-200
+              ${autoStart ? 'left-[21px]' : 'left-[3px]'}
             `}
           />
         </button>
       </div>
 
       {/* Tunnel status */}
-      <div className="flex items-center justify-between bg-surface-2 rounded-lg p-4 border border-glass-border">
+      <div className="flex items-center justify-between bg-surface-2 rounded-xl p-4 border border-glass-border">
         <div>
           <div className="font-semibold text-[13px] mb-1">Tunnel Status</div>
           <StatusBadge status={sidecarRunning ? 'connected' : 'disconnected'} />
@@ -271,10 +270,10 @@ export function Settings() {
         <button
           onClick={handleSave}
           className={`
-            text-white px-8 py-2.5 rounded-md font-semibold text-sm transition-all duration-150
+            text-white px-8 py-2.5 rounded-lg font-semibold text-sm transition-all duration-150
             ${saved
               ? 'bg-success'
-              : 'bg-gradient-to-br from-accent to-[#D406B9] hover:brightness-110'
+              : 'bg-gradient-to-r from-accent to-[#D406B9] cursor-pointer hover:shadow-[0_0_20px_rgba(0,153,255,0.25)]'
             }
           `}
         >

@@ -25,6 +25,13 @@ const SESSION_DURATION_OPTIONS = [
 
 const AI_CATEGORIES = ['search_crawlers', 'llm_scrapers', 'ai_assistants', 'training_bots'];
 
+const AI_CATEGORY_LABELS: Record<string, string> = {
+  search_crawlers: 'Search crawlers',
+  llm_scrapers: 'LLM scrapers',
+  ai_assistants: 'AI assistants',
+  training_bots: 'Training bots',
+};
+
 export function AccessPolicyForm({ value, onChange, compact = false, advancedOnly = false }: AccessPolicyFormProps) {
   const [showAdvanced, setShowAdvanced] = useState(false);
 
@@ -67,20 +74,20 @@ export function AccessPolicyForm({ value, onChange, compact = false, advancedOnl
           </select>
         </div>
 
-        {/* One-time-use toggle */}
+        {/* One-time-use toggle — standardized size */}
         <div className="flex items-center gap-2 pb-0.5">
           <button
             type="button"
             onClick={() => updateField('one_time_use', !value.one_time_use)}
             className={`
-              relative w-9 h-5 rounded-full shrink-0 transition-colors duration-200
+              relative w-10 h-[22px] rounded-full shrink-0 transition-colors duration-200
               ${value.one_time_use ? 'bg-accent' : 'bg-surface-3'}
             `}
           >
             <span
               className={`
-                absolute top-0.5 w-4 h-4 rounded-full bg-white shadow-sm transition-[left] duration-200
-                ${value.one_time_use ? 'left-[18px]' : 'left-0.5'}
+                absolute top-[3px] w-4 h-4 rounded-full bg-white shadow-sm transition-[left] duration-200
+                ${value.one_time_use ? 'left-[21px]' : 'left-[3px]'}
               `}
             />
           </button>
@@ -124,10 +131,10 @@ export function AccessPolicyForm({ value, onChange, compact = false, advancedOnl
 
       {/* Advanced tier */}
       {showAdvanced && (
-        <div className={`flex flex-col ${compact ? 'gap-2' : 'gap-3'} p-3 bg-surface-1 rounded-md border border-glass-border`}>
+        <div className={`flex flex-col ${compact ? 'gap-2' : 'gap-3'} p-3 bg-surface-1 rounded-xl border border-glass-border`}>
           {/* IP allowlist */}
           <div>
-            <label className="text-xs font-medium text-text-secondary mb-1 block">IP Allowlist</label>
+            <label className="text-xs font-medium text-text-secondary mb-1 block">Restrict by IP address</label>
             <input
               value={(policy.ip_allowlist || []).join(', ')}
               onChange={(e) => {
@@ -140,11 +147,12 @@ export function AccessPolicyForm({ value, onChange, compact = false, advancedOnl
               placeholder="e.g., 192.168.1.0/24"
               className="w-full"
             />
+            <span className="text-[10px] text-text-muted mt-1 block">Only these IP ranges can access</span>
           </div>
 
           {/* IP denylist */}
           <div>
-            <label className="text-xs font-medium text-text-secondary mb-1 block">IP Denylist</label>
+            <label className="text-xs font-medium text-text-secondary mb-1 block">Block IP addresses</label>
             <input
               value={(policy.ip_denylist || []).join(', ')}
               onChange={(e) => {
@@ -157,11 +165,12 @@ export function AccessPolicyForm({ value, onChange, compact = false, advancedOnl
               placeholder="e.g., 10.0.0.0/8"
               className="w-full"
             />
+            <span className="text-[10px] text-text-muted mt-1 block">These IP ranges will be denied access</span>
           </div>
 
           {/* Geo allowlist */}
           <div>
-            <label className="text-xs font-medium text-text-secondary mb-1 block">Geo Allowlist</label>
+            <label className="text-xs font-medium text-text-secondary mb-1 block">Allow by country</label>
             <input
               value={(policy.geo_allowlist || []).join(', ')}
               onChange={(e) => {
@@ -174,11 +183,12 @@ export function AccessPolicyForm({ value, onChange, compact = false, advancedOnl
               placeholder="e.g., US, CA, GB"
               className="w-full"
             />
+            <span className="text-[10px] text-text-muted mt-1 block">Two-letter country codes, comma separated</span>
           </div>
 
           {/* Geo denylist */}
           <div>
-            <label className="text-xs font-medium text-text-secondary mb-1 block">Geo Denylist</label>
+            <label className="text-xs font-medium text-text-secondary mb-1 block">Block by country</label>
             <input
               value={(policy.geo_denylist || []).join(', ')}
               onChange={(e) => {
@@ -191,11 +201,12 @@ export function AccessPolicyForm({ value, onChange, compact = false, advancedOnl
               placeholder="e.g., CN, RU"
               className="w-full"
             />
+            <span className="text-[10px] text-text-muted mt-1 block">Visitors from these countries will be denied</span>
           </div>
 
           {/* AI agent policy */}
           <div>
-            <label className="text-xs font-medium text-text-secondary mb-1 block">AI Agent Policy</label>
+            <label className="text-xs font-medium text-text-secondary mb-1 block">AI bot protection</label>
             <div className="flex items-center gap-2 mb-2">
               <button
                 type="button"
@@ -209,19 +220,19 @@ export function AccessPolicyForm({ value, onChange, compact = false, advancedOnl
                   });
                 }}
                 className={`
-                  relative w-9 h-5 rounded-full shrink-0 transition-colors duration-200
+                  relative w-10 h-[22px] rounded-full shrink-0 transition-colors duration-200
                   ${policy.ai_agent_policy?.block_all ? 'bg-danger' : 'bg-surface-3'}
                 `}
               >
                 <span
                   className={`
-                    absolute top-0.5 w-4 h-4 rounded-full bg-white shadow-sm transition-[left] duration-200
-                    ${policy.ai_agent_policy?.block_all ? 'left-[18px]' : 'left-0.5'}
+                    absolute top-[3px] w-4 h-4 rounded-full bg-white shadow-sm transition-[left] duration-200
+                    ${policy.ai_agent_policy?.block_all ? 'left-[21px]' : 'left-[3px]'}
                   `}
                 />
               </button>
               <span className="text-xs text-text-secondary">
-                Block all AI agents
+                Block all AI bots &amp; scrapers
               </span>
             </div>
             {!policy.ai_agent_policy?.block_all && (
@@ -246,7 +257,7 @@ export function AccessPolicyForm({ value, onChange, compact = false, advancedOnl
                         });
                       }}
                       className={`
-                        px-2.5 py-1 rounded-md text-[11px] font-medium cursor-pointer transition-all duration-150
+                        px-2.5 py-1 rounded-lg text-[11px] font-medium cursor-pointer transition-all duration-150
                         ${active
                           ? 'bg-danger-dim text-danger border border-danger-border'
                           : 'bg-surface-3 text-text-secondary border border-transparent hover:text-text-primary'
@@ -254,7 +265,7 @@ export function AccessPolicyForm({ value, onChange, compact = false, advancedOnl
                       `}
                     >
                       {active ? '\u2715 ' : ''}
-                      {cat.replace(/_/g, ' ')}
+                      {AI_CATEGORY_LABELS[cat] || cat.replace(/_/g, ' ')}
                     </button>
                   );
                 })}
@@ -264,7 +275,7 @@ export function AccessPolicyForm({ value, onChange, compact = false, advancedOnl
 
           {/* Session duration */}
           <div>
-            <label className="text-xs font-medium text-text-secondary mb-1 block">Session Duration</label>
+            <label className="text-xs font-medium text-text-secondary mb-1 block">Session duration</label>
             <select
               value={value.session_duration || ''}
               onChange={(e) => updateField('session_duration', e.target.value || undefined)}
@@ -276,6 +287,7 @@ export function AccessPolicyForm({ value, onChange, compact = false, advancedOnl
                 </option>
               ))}
             </select>
+            <span className="text-[10px] text-text-muted mt-1 block">How long each viewer can stay connected</span>
           </div>
         </div>
       )}

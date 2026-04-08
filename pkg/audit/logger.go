@@ -127,15 +127,15 @@ func (l *JSONLLogger) run() {
 		case entry, ok := <-l.ch:
 			if !ok {
 				// Channel closed — drain is complete.
-				bw.Flush()
+				_ = bw.Flush()
 				return
 			}
-			enc.Encode(entry)
+			_ = enc.Encode(entry)
 			if bw.Buffered() >= flushBytes {
-				bw.Flush()
+				_ = bw.Flush()
 			}
 		case <-ticker.C:
-			bw.Flush()
+			_ = bw.Flush()
 		}
 	}
 }

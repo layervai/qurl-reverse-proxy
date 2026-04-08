@@ -1,6 +1,7 @@
-import { app, BrowserWindow } from 'electron';
+import { app, BrowserWindow, nativeImage } from 'electron';
 import path from 'path';
-import { setupIpcHandlers, cleanupShares } from './ipc';
+import fs from 'fs';
+import { setupIpcHandlers, cleanupShares, initFileServer } from './ipc';
 import { createTray, destroyTray } from './tray';
 import { sidecar } from './ipc';
 
@@ -15,6 +16,7 @@ function createWindow(): void {
     title: 'QURL Desktop',
     titleBarStyle: 'hiddenInset',
     backgroundColor: '#0a0e27',
+    icon: path.join(__dirname, '..', '..', 'resources', 'icon.png'),
     webPreferences: {
       preload: path.join(__dirname, '..', 'preload', 'index.js'),
       contextIsolation: true,
@@ -46,10 +48,21 @@ function createWindow(): void {
 
 let isQuitting = false;
 
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
+  // Set dock icon on macOS
+  if (process.platform === 'darwin' && app.dock) {
+    const iconPath = path.join(__dirname, '..', '..', 'resources', 'icon.png');
+    try {
+      const icon = nativeImage.createFromPath(iconPath);
+      if (!icon.isEmpty()) app.dock.setIcon(icon);
+    } catch { /* best effort */ }
+  }
+
   setupIpcHandlers();
   createWindow();
   createTray(() => mainWindow, sidecar);
+  // Start file server if existing shares need serving
+  await initFileServer();
 
   app.on('activate', () => {
     if (mainWindow) {

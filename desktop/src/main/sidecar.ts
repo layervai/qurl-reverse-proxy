@@ -20,6 +20,7 @@ export class SidecarManager {
   private binaryPath: string;
   private startedAt: number | null = null;
   private logs: string[] = [];
+  private logPath: string | null = null;
 
   constructor(binaryPath?: string) {
     this.binaryPath = binaryPath ?? this.resolveBinaryPath();
@@ -58,10 +59,29 @@ export class SidecarManager {
     return CONFIG_PATH;
   }
 
+  /**
+   * Ensure the config directory and default config file exist.
+   * Call this before running any qurl-frpc CLI commands that need the config.
+   */
+  ensureConfigExists(): void {
+    if (!fs.existsSync(CONFIG_DIR)) {
+      fs.mkdirSync(CONFIG_DIR, { recursive: true });
+    }
+    if (!fs.existsSync(CONFIG_PATH)) {
+      this.writeDefaultConfig();
+    }
+  }
+
   async start(): Promise<void> {
     if (this.process && !this.process.killed) {
       throw new Error('Sidecar is already running');
     }
+
+    // Kill any orphaned frpc processes holding the admin port
+    try {
+      const { execSync } = require('child_process');
+      execSync(`lsof -ti :${ADMIN_PORT} | xargs kill -9 2>/dev/null || true`, { stdio: 'ignore' });
+    } catch { /* best effort */ }
 
     // Verify binary exists
     if (!fs.existsSync(this.binaryPath)) {
@@ -71,22 +91,8 @@ export class SidecarManager {
       );
     }
 
-    // Ensure config directory and file exist
-    if (!fs.existsSync(CONFIG_DIR)) {
-      fs.mkdirSync(CONFIG_DIR, { recursive: true });
-    }
-    if (!fs.existsSync(CONFIG_PATH)) {
-      this.writeDefaultConfig();
-    }
-
-    // Check that config has routes
-    const configContent = fs.readFileSync(CONFIG_PATH, 'utf-8');
-    if (!configContent.includes('routes:') || !configContent.includes('- name:')) {
-      throw new Error(
-        'No services configured. Add a service first:\n' +
-        '  qurl-frpc add --target http://localhost:8080 --name "My App"'
-      );
-    }
+    // Ensure config and built-in qurl-files route exist
+    this.ensureFilesRoute();
 
     const args = ['run', '--config', CONFIG_PATH];
 
@@ -97,29 +103,25 @@ export class SidecarManager {
       };
 
       try {
+        // Write logs to file instead of piping through Electron's event loop.
+        // Piped stdio can cause the child process to stall if the pipe buffer fills.
+        const logPath = path.join(CONFIG_DIR, 'qurl-frpc.log');
+        const logFd = fs.openSync(logPath, 'a');
+
         this.process = spawn(this.binaryPath, args, {
-          stdio: ['ignore', 'pipe', 'pipe'],
-          detached: false,
+          stdio: ['ignore', logFd, logFd],
+          detached: true,
         });
+
+        // Unref so the child doesn't keep Electron alive on quit
+        this.process.unref();
 
         this.startedAt = Date.now();
         this.logs = [];
+        this.logPath = logPath;
 
-        this.process.stdout?.on('data', (data: Buffer) => {
-          const line = data.toString().trim();
-          if (line) {
-            this.logs.push(line);
-            if (this.logs.length > 500) this.logs.shift();
-          }
-        });
-
-        this.process.stderr?.on('data', (data: Buffer) => {
-          const line = data.toString().trim();
-          if (line) {
-            this.logs.push(`[stderr] ${line}`);
-            if (this.logs.length > 500) this.logs.shift();
-          }
-        });
+        // Close the fd in the parent — the child has its own copy
+        fs.closeSync(logFd);
 
         this.process.on('error', (err) => {
           this.process = null;
@@ -138,7 +140,7 @@ export class SidecarManager {
           }
         });
 
-        // If still running after 1.5s, consider it started
+        // If still running after 2.5s, consider it started
         setTimeout(() => {
           settle(() => {
             if (this.process && !this.process.killed) {
@@ -147,7 +149,7 @@ export class SidecarManager {
               reject(new Error('qurl-frpc exited immediately'));
             }
           });
-        }, 1500);
+        }, 2500);
       } catch (err) {
         settle(() => reject(err));
       }
@@ -163,8 +165,11 @@ export class SidecarManager {
 
     return new Promise((resolve) => {
       const proc = this.process!;
+      const pid = proc.pid;
+
       const forceKillTimer = setTimeout(() => {
-        if (!proc.killed) proc.kill('SIGKILL');
+        // For detached processes, kill by PID directly
+        if (pid) { try { process.kill(pid, 'SIGKILL'); } catch { /* already dead */ } }
         this.process = null;
         this.startedAt = null;
         resolve();
@@ -177,12 +182,22 @@ export class SidecarManager {
         resolve();
       });
 
-      proc.kill('SIGTERM');
+      // For detached processes, kill by PID
+      if (pid) { try { process.kill(pid, 'SIGTERM'); } catch { /* already dead */ } }
     });
   }
 
   isRunning(): boolean {
-    return this.process !== null && !this.process.killed;
+    if (!this.process || !this.process.pid) return false;
+    // For detached processes, check if the PID is still alive
+    try {
+      process.kill(this.process.pid, 0); // signal 0 = just check if alive
+      return true;
+    } catch {
+      this.process = null;
+      this.startedAt = null;
+      return false;
+    }
   }
 
   getStatus(): SidecarStatus {
@@ -195,6 +210,14 @@ export class SidecarManager {
   }
 
   getLogs(): string[] {
+    // Read logs from the log file if available
+    if (this.logPath) {
+      try {
+        const content = fs.readFileSync(this.logPath, 'utf-8');
+        const lines = content.split('\n').filter(Boolean);
+        return lines.slice(-100); // Last 100 lines
+      } catch { /* fall through */ }
+    }
     return [...this.logs];
   }
 
@@ -208,6 +231,19 @@ export class SidecarManager {
     await this.adminRequest('GET', '/api/reload');
   }
 
+  /**
+   * Read the machine_id from the config file for admin API auth.
+   * The frpc binary uses admin:{machine_id} for basic auth.
+   */
+  private getAdminAuth(): string {
+    try {
+      const config = fs.readFileSync(CONFIG_PATH, 'utf-8');
+      const match = config.match(/machine_id:\s*(\S+)/);
+      if (match) return `admin:${match[1]}`;
+    } catch { /* fallback */ }
+    return 'admin:admin';
+  }
+
   private adminRequest(method: string, endpoint: string, body?: string): Promise<unknown> {
     return new Promise((resolve, reject) => {
       const req = http.request(
@@ -216,7 +252,7 @@ export class SidecarManager {
           port: ADMIN_PORT,
           path: endpoint,
           method,
-          auth: 'admin:admin',
+          auth: this.getAdminAuth(),
           headers: body ? { 'Content-Type': 'application/json' } : undefined,
           timeout: 5000,
         },
@@ -236,23 +272,52 @@ export class SidecarManager {
     });
   }
 
+  /**
+   * Ensure the qurl-files route exists in the config.
+   * This is a built-in service that can't be removed — it lets the tunnel
+   * always have at least one route so it can start, and means file sharing
+   * works immediately without bootstrapping.
+   */
+  ensureFilesRoute(): void {
+    this.ensureConfigExists();
+    const content = fs.readFileSync(CONFIG_PATH, 'utf-8');
+    if (!content.includes('name: qurl-files')) {
+      const args = [
+        'add', '--target', 'http://127.0.0.1:9876',
+        '--name', 'qurl-files', '--no-verify',
+        '--config', CONFIG_PATH,
+      ];
+      try {
+        const { execFileSync } = require('child_process');
+        execFileSync(this.binaryPath, args, { stdio: 'ignore' });
+      } catch (err) {
+        console.error('[sidecar] failed to add qurl-files route:', (err as Error).message);
+      }
+    }
+  }
+
   private writeDefaultConfig(): void {
+    // Use QURL_TUNNEL_ADDR env var for server address, default to localhost for dev
+    const serverAddr = process.env.QURL_TUNNEL_ADDR || '127.0.0.1';
+    const serverToken = process.env.QURL_TUNNEL_TOKEN || 'qurl-dev-token';
+    const apiUrl = process.env.QURL_API_URL || 'https://api.layerv.ai/v1';
+
     const yaml = `# QURL Reverse Proxy configuration
 # Docs: https://docs.layerv.ai/qurl/reverse-proxy
 
 server:
-  addr: acdemo.opennhp.org
+  addr: ${serverAddr}
   port: 7000
-  token: opennhp-frp
+  token: ${serverToken}
 
 nhp:
   enabled: false
 
 qurl:
-  api_url: https://api.layerv.ai/v1
+  api_url: ${apiUrl}
 
 routes: []
-# Add services with: qurl-frpc add --target http://localhost:8080 --name "My App"
+# The qurl-files route is added automatically on first tunnel start.
 `;
     fs.writeFileSync(CONFIG_PATH, yaml, 'utf-8');
   }

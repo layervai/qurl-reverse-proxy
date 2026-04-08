@@ -49,7 +49,7 @@ export function LinkCard({ id, name, link, createdAt, expiresAt, onRevoke }: Lin
   }, [id, onRevoke]);
 
   return (
-    <div className="bg-surface-2 rounded-lg p-4 border border-glass-border flex flex-col gap-2.5 transition-colors hover:border-glass-border-hover">
+    <div className="bg-surface-2 rounded-xl p-4 border border-glass-border flex flex-col gap-2.5 transition-colors hover:border-glass-border-hover">
       {/* Header */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2 min-w-0">
@@ -62,13 +62,13 @@ export function LinkCard({ id, name, link, createdAt, expiresAt, onRevoke }: Lin
       </div>
 
       {/* Link */}
-      <div className="flex items-center gap-2 bg-surface-1 rounded-md px-3 py-2">
+      <div className="flex items-center gap-2 bg-surface-1 rounded-lg px-3 py-2">
         <code className="flex-1 font-mono text-xs text-accent truncate">{link}</code>
         <button
           onClick={handleCopy}
-          className={`px-3 py-1 rounded-md text-xs font-medium shrink-0 transition-all ${
+          className={`px-3 py-1 rounded-lg text-xs font-medium shrink-0 transition-all duration-150 ${
             copied
-              ? 'bg-success text-text-inverse'
+              ? 'bg-success text-white'
               : 'bg-surface-3 text-text-primary hover:bg-surface-4'
           }`}
         >

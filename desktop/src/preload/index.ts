@@ -11,17 +11,21 @@ contextBridge.exposeInMainWorld('qurl', {
     start: () => ipcRenderer.invoke('sidecar:start'),
     stop: () => ipcRenderer.invoke('sidecar:stop'),
     status: () => ipcRenderer.invoke('sidecar:status'),
+    logs: () => ipcRenderer.invoke('sidecar:logs'),
   },
   tunnels: {
     list: () => ipcRenderer.invoke('tunnels:list'),
     add: (target: string, name: string) => ipcRenderer.invoke('tunnels:add', target, name),
     remove: (name: string) => ipcRenderer.invoke('tunnels:remove', name),
+    toggle: (name: string, enabled: boolean) => ipcRenderer.invoke('tunnels:toggle', name, enabled),
   },
   share: {
     file: (filePath: string, name: string, options?: Partial<QURLCreateInput>) =>
       ipcRenderer.invoke('share:file', filePath, name, options),
     url: (targetUrl: string, options?: Partial<QURLCreateInput>) =>
       ipcRenderer.invoke('share:url', targetUrl, options),
+    urlLocal: (targetUrl: string, options?: Partial<QURLCreateInput>) =>
+      ipcRenderer.invoke('share:urlLocal', targetUrl, options),
     service: (serviceName: string, options?: Partial<QURLCreateInput>) =>
       ipcRenderer.invoke('share:service', serviceName, options),
     stop: (id: string) => ipcRenderer.invoke('share:stop', id),
@@ -34,8 +38,15 @@ contextBridge.exposeInMainWorld('qurl', {
       ipcRenderer.invoke('qurls:list', params),
     get: (id: string) => ipcRenderer.invoke('qurls:get', id),
     revoke: (resourceId: string) => ipcRenderer.invoke('qurls:revoke', resourceId),
+    revokeQurl: (resourceId: string, qurlId: string) =>
+      ipcRenderer.invoke('qurls:revokeQurl', resourceId, qurlId),
     mintLink: (resourceId: string, input?: Partial<QURLCreateInput>) =>
       ipcRenderer.invoke('qurls:mintLink', resourceId, input),
+    getSessions: (resourceId: string) => ipcRenderer.invoke('qurls:getSessions', resourceId),
+    terminateSession: (resourceId: string, sessionId: string) =>
+      ipcRenderer.invoke('qurls:terminateSession', resourceId, sessionId),
+    terminateAllSessions: (resourceId: string) =>
+      ipcRenderer.invoke('qurls:terminateAllSessions', resourceId),
   },
   settings: {
     getDefaults: () => ipcRenderer.invoke('settings:getDefaults'),

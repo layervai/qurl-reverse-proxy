@@ -312,7 +312,7 @@ func TestResolveEnvVars_Basic(t *testing.T) {
 func TestResolveEnvVars_WithDefault(t *testing.T) {
 	// Ensure the var is not set.
 	t.Setenv("QURL_TEST_UNSET_99", "")
-	os.Unsetenv("QURL_TEST_UNSET_99")
+	_ = os.Unsetenv("QURL_TEST_UNSET_99")
 
 	result := resolveEnvVars("${QURL_TEST_UNSET_99:-fallback}")
 	if result != "fallback" {
@@ -321,7 +321,7 @@ func TestResolveEnvVars_WithDefault(t *testing.T) {
 }
 
 func TestResolveEnvVars_MissingNoDefault(t *testing.T) {
-	os.Unsetenv("QURL_TEST_MISSING_42")
+	_ = os.Unsetenv("QURL_TEST_MISSING_42")
 	result := resolveEnvVars("${QURL_TEST_MISSING_42}")
 	if result != "" {
 		t.Errorf("got %q, want empty string", result)

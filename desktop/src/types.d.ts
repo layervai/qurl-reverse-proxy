@@ -47,7 +47,12 @@ interface TunnelService {
   resourceId?: string;
   publicUrl?: string;
   status: 'connected' | 'disconnected' | 'error';
+  enabled: boolean;
 }
+
+// --- Navigation ---
+
+type PageId = 'home' | 'resources' | 'connections' | 'settings';
 
 // --- QURL Types ---
 
@@ -79,7 +84,7 @@ interface QURLInfo {
   qurl_id: string;
   resource_id: string;
   qurl_link: string;
-  qurl_site?: string;
+  qurl_site: string;
   target_url: string;
   status: 'active' | 'expired' | 'revoked';
   expires_at: string | null;
@@ -96,6 +101,59 @@ interface QURLListResult extends IpcResult {
   qurls?: QURLInfo[];
   has_more?: boolean;
   next_cursor?: string;
+}
+
+interface QurlTokenInfo {
+  qurl_id: string;
+  label?: string;
+  status: 'active' | 'consumed' | 'expired' | 'revoked';
+  one_time_use: boolean;
+  max_sessions: number;
+  session_duration?: number;
+  use_count: number;
+  qurl_site?: string;
+  created_at: string;
+  expires_at: string;
+  access_policy?: AccessPolicy;
+}
+
+interface ResourceDetail {
+  resource_id: string;
+  target_url: string;
+  status: 'active' | 'revoked';
+  created_at: string;
+  expires_at?: string;
+  description?: string;
+  tags: string[];
+  qurl_site: string;
+  qurl_count: number;
+  custom_domain: string | null;
+  qurls: QurlTokenInfo[];
+}
+
+interface ResourceDetailResult extends IpcResult {
+  resource?: ResourceDetail;
+}
+
+interface SessionInfo {
+  session_id: string;
+  qurl_id: string;
+  src_ip: string;
+  user_agent: string;
+  created_at: string;
+  last_seen_at: string;
+}
+
+interface SessionListResult extends IpcResult {
+  sessions?: SessionInfo[];
+}
+
+interface SessionTerminateResult extends IpcResult {
+  count?: number;
+}
+
+interface SidecarLogsResult extends IpcResult {
+  logs?: string[];
 }
 
 interface URLDetectResult extends IpcResult {
@@ -131,15 +189,18 @@ interface QUrlBridge {
     start: () => Promise<IpcResult>;
     stop: () => Promise<IpcResult>;
     status: () => Promise<SidecarStatus>;
+    logs: () => Promise<SidecarLogsResult>;
   };
   tunnels: {
     list: () => Promise<TunnelService[]>;
     add: (target: string, name: string) => Promise<IpcResult & { tunnel?: TunnelService }>;
     remove: (name: string) => Promise<IpcResult>;
+    toggle: (name: string, enabled: boolean) => Promise<IpcResult>;
   };
   share: {
     file: (filePath: string, name: string, options?: Partial<QURLCreateInput>) => Promise<QURLCreateResult>;
     url: (targetUrl: string, options?: Partial<QURLCreateInput>) => Promise<QURLCreateResult>;
+    urlLocal: (targetUrl: string, options?: Partial<QURLCreateInput>) => Promise<QURLCreateResult>;
     service: (serviceName: string, options?: Partial<QURLCreateInput>) => Promise<QURLCreateResult>;
     stop: (id: string) => Promise<IpcResult>;
     list: () => Promise<ShareInfo[]>;
@@ -148,9 +209,13 @@ interface QUrlBridge {
   qurls: {
     create: (input: QURLCreateInput) => Promise<QURLCreateResult>;
     list: (params?: { limit?: number; cursor?: string; status?: string }) => Promise<QURLListResult>;
-    get: (id: string) => Promise<IpcResult & { qurl?: QURLInfo }>;
+    get: (id: string) => Promise<ResourceDetailResult>;
     revoke: (resourceId: string) => Promise<IpcResult>;
+    revokeQurl: (resourceId: string, qurlId: string) => Promise<IpcResult>;
     mintLink: (resourceId: string, input?: Partial<QURLCreateInput>) => Promise<QURLCreateResult>;
+    getSessions: (resourceId: string) => Promise<SessionListResult>;
+    terminateSession: (resourceId: string, sessionId: string) => Promise<SessionTerminateResult>;
+    terminateAllSessions: (resourceId: string) => Promise<SessionTerminateResult>;
   };
   settings: {
     getDefaults: () => Promise<QURLDefaults>;

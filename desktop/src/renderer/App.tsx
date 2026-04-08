@@ -1,19 +1,18 @@
 import { useState, useEffect, useCallback } from 'react';
 import { Login } from './pages/Login';
-import { Share } from './pages/Share';
+import { Home } from './pages/Home';
 import { Dashboard } from './pages/Dashboard';
 import { Resources } from './pages/Resources';
 import { Settings } from './pages/Settings';
 
-type Page = 'share' | 'resources' | 'connections' | 'settings';
+type Page = 'home' | 'resources' | 'connections' | 'settings';
 type AuthMode = 'none' | 'account' | 'guest';
 
 const NAV_ITEMS: { id: Page; label: string; iconPath: string; guestDisabled?: boolean }[] = [
   {
-    id: 'share',
-    label: 'Share',
-    iconPath: 'M4 12l1.41 1.41L11 7.83V20h2V7.83l5.58 5.59L20 12l-8-8-8 8z',
-    guestDisabled: true,
+    id: 'home',
+    label: 'Home',
+    iconPath: 'M10 20v-6h4v6h5v-8h3L12 3 2 12h3v8z',
   },
   {
     id: 'resources',
@@ -41,9 +40,9 @@ function NavIcon({ path, size = 18 }: { path: string; size?: number }) {
   );
 }
 
-function renderPage(page: Page) {
+function renderPage(page: Page, navigateTo: (p: Page) => void, isGuest: boolean) {
   switch (page) {
-    case 'share': return <Share />;
+    case 'home': return <Home navigateTo={navigateTo} isGuest={isGuest} />;
     case 'resources': return <Resources />;
     case 'connections': return <Dashboard />;
     case 'settings': return <Settings />;
@@ -51,7 +50,7 @@ function renderPage(page: Page) {
 }
 
 export function App() {
-  const [page, setPage] = useState<Page>('share');
+  const [page, setPage] = useState<Page>('home');
   const [authMode, setAuthMode] = useState<AuthMode>('none');
   const [email, setEmail] = useState<string | null>(null);
   const [apiKeyHint, setApiKeyHint] = useState<string | null>(null);
@@ -90,14 +89,17 @@ export function App() {
         {/* Brand */}
         <div className="px-5 pt-3 pb-5">
           <div className="flex items-center gap-2.5">
-            {/* Shield icon */}
-            <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-[#0099FF] to-[#D406B9] flex items-center justify-center shadow-[0_0_16px_var(--color-accent-glow)]">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" className="text-text-inverse">
-                <path d="M12 1L3 5v6c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V5l-9-4z" />
+            {/* LayerV logo — matches dock icon */}
+            <div className="w-7 h-7 rounded-lg bg-surface-0 border border-glass-border flex items-center justify-center">
+              <svg width="15" height="15" viewBox="0 0 32 32" fill="none">
+                <path d="M3 4 L15 11 L27 4" stroke="#0099FF" strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round"/>
+                <path d="M3 11 L15 18 L27 11" stroke="#2b7de0" strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round"/>
+                <path d="M3 18 L15 25 L27 18" stroke="#8b3dd6" strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round"/>
+                <path d="M3 25 L15 32 L27 25" stroke="#D406B9" strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round"/>
               </svg>
             </div>
             <div>
-              <div className="text-[17px] font-extrabold tracking-tight text-text-primary font-sans">
+              <div className="text-[17px] font-bold tracking-tight text-text-primary font-sans">
                 QURL
               </div>
             </div>
@@ -147,7 +149,7 @@ export function App() {
             <div className="px-1 py-4">
               <button
                 onClick={handleSignOut}
-                className="w-full py-2 px-3.5 rounded-md bg-gradient-to-r from-[#0099FF] to-[#D406B9] text-text-inverse text-xs font-bold tracking-wide cursor-pointer shadow-[var(--shadow-glow)] transition-all duration-[250ms] ease-out hover:opacity-90"
+                className="w-full py-2 px-3.5 rounded-lg bg-gradient-to-r from-[#0099FF] to-[#D406B9] text-white text-xs font-semibold tracking-wide cursor-pointer transition-all duration-150 hover:shadow-[0_0_20px_rgba(0,153,255,0.25)]"
               >
                 Sign in for full access
               </button>
@@ -172,8 +174,8 @@ export function App() {
       </nav>
 
       {/* ── Main Content ── */}
-      <main className="flex-1 overflow-auto px-10 pb-9 pt-14 bg-surface-0">
-        {renderPage(page)}
+      <main className="flex-1 overflow-auto px-6 pb-6 pt-12 bg-surface-0">
+        {renderPage(page, setPage, isGuest)}
       </main>
     </div>
   );

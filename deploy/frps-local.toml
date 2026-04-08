@@ -1,0 +1,27 @@
+# Local development QURL Reverse Proxy Server
+# Run with: ./bin/qurl-frps -c deploy/frps-local.toml
+
+bindPort = 7000
+
+# HTTP vhost on 8443 (no TLS — access via http://localhost:8443)
+vhostHTTPPort = 8443
+
+# Subdomain routing: {subdomain}.localhost
+subDomainHost = "localhost"
+
+# Logging to stdout
+log.to = "console"
+log.level = "info"
+
+# Auth token (matches client config)
+auth.method = "token"
+auth.token = "qurl-dev-token"
+
+# Admin dashboard
+webServer.addr = "127.0.0.1"
+webServer.port = 7500
+webServer.user = "admin"
+webServer.password = "admin"
+
+# Branded 404 page for expired/revoked/missing QURL links
+custom404Page = "./deploy/404.html"

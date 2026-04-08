@@ -176,14 +176,14 @@ func (m *SessionMiddleware) audit(r *http.Request, action audit.Action, claims *
 }
 
 func auditActionForError(err error) audit.Action {
-	switch {
-	case err == ErrTokenExpired:
+	switch err {
+	case ErrTokenExpired:
 		return audit.ActionDenyExpired
-	case err == ErrInvalidSignature:
+	case ErrInvalidSignature:
 		return audit.ActionDenyInvalidSignature
-	case err == ErrMissingClaims:
+	case ErrMissingClaims:
 		return audit.ActionDenyMissingClaims
-	case err == ErrMalformedToken:
+	case ErrMalformedToken:
 		return audit.ActionDenyMalformed
 	default:
 		return audit.ActionDenyMalformed

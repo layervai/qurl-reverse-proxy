@@ -24,7 +24,7 @@ const AUTH_CONFIGS: Record<string, AuthConfig> = {
   staging: {
     domain: 'dev-q1kiedn8knbutena.us.auth0.com',
     clientId: 'hRIdH8XZrWwKdQXzqIG4Csyq2IdZf9OF',
-    audience: '', // Dev tenant — no custom API registered yet
+    audience: 'https://api.layerv.xyz',
     redirectPort: 19836,
   },
 };
@@ -202,22 +202,29 @@ const API_BASE_URLS: Record<string, string> = {
  * token. On success the key is stored encrypted, the same as OAuth tokens.
  */
 export async function signInWithAPIKey(apiKey: string): Promise<AuthTokens> {
-  // Determine environment from prefix
+  if (!apiKey.startsWith('lv_live_') && !apiKey.startsWith('lv_test_')) {
+    throw new Error(
+      'Invalid API key format. Keys must start with lv_live_ or lv_test_.'
+    );
+  }
+
+  // If QURL_ENV is explicitly set, use that instead of inferring from key prefix.
+  // This handles the case where staging portals issue lv_live_ prefixed keys.
+  const envOverride = getEnvironment();
   let env: string;
-  if (apiKey.startsWith('lv_live_')) {
-    env = 'production';
+  if (envOverride !== 'production') {
+    env = envOverride;
   } else if (apiKey.startsWith('lv_test_')) {
     env = 'staging';
   } else {
-    throw new Error(
-      'Invalid API key format. Keys must start with lv_live_ (production) or lv_test_ (staging).'
-    );
+    env = 'production';
   }
 
   const baseURL = API_BASE_URLS[env];
 
-  // Validate the key against the QURL API health endpoint.
-  const resp = await fetch(`${baseURL}/health`, {
+  // Validate the key by calling an actual authenticated endpoint.
+  // /health doesn't require auth, so we use /v1/resources?limit=1 instead.
+  const resp = await fetch(`${baseURL}/resources?limit=1`, {
     method: 'GET',
     headers: { Authorization: `Bearer ${apiKey}` },
   });
