@@ -81,6 +81,64 @@ function getStatusStyle(status: string): StatusStyle {
   }
 }
 
+/**
+ * Determine the "effective" state of a resource for visual display.
+ * A resource can be "active" in the API but have no usable links — we call that "dormant".
+ */
+type EffectiveState = 'sharing' | 'dormant' | 'expired' | 'revoked';
+
+function getEffectiveState(q: QURLInfo, detail?: ResourceDetail): EffectiveState {
+  if (q.status === 'revoked') return 'revoked';
+  if (q.status === 'expired') return 'expired';
+  // If we have detail, check if any QURL is actually active
+  if (detail) {
+    const hasActiveQurl = detail.qurls.some((t) => t.status === 'active');
+    return hasActiveQurl ? 'sharing' : 'dormant';
+  }
+  // Without detail, check the resource's own expiry
+  if (q.expires_at && new Date(q.expires_at).getTime() <= Date.now()) return 'dormant';
+  return 'sharing';
+}
+
+type EffectiveStyle = { dotClass: string; textClass: string; label: string; borderClass: string; glowClass: string };
+
+function getEffectiveStyle(state: EffectiveState): EffectiveStyle {
+  switch (state) {
+    case 'sharing':
+      return {
+        dotClass: 'bg-success',
+        textClass: 'text-success',
+        label: 'Sharing',
+        borderClass: 'border-[rgba(16,185,129,0.12)]',
+        glowClass: 'shadow-[0_0_12px_rgba(16,185,129,0.06)]',
+      };
+    case 'dormant':
+      return {
+        dotClass: 'bg-warning',
+        textClass: 'text-warning',
+        label: 'No active links',
+        borderClass: 'border-glass-border',
+        glowClass: '',
+      };
+    case 'expired':
+      return {
+        dotClass: 'bg-text-muted',
+        textClass: 'text-text-muted',
+        label: 'Expired',
+        borderClass: 'border-glass-border',
+        glowClass: '',
+      };
+    case 'revoked':
+      return {
+        dotClass: 'bg-danger',
+        textClass: 'text-danger',
+        label: 'Revoked',
+        borderClass: 'border-glass-border',
+        glowClass: '',
+      };
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Filter types
 // ---------------------------------------------------------------------------
@@ -309,6 +367,26 @@ export function Resources() {
     try {
       const result = await window.qurl.qurls.list();
       if (result.success && result.qurls) {
+        // Pre-fetch details for active resources so effective state is accurate
+        // Do this BEFORE setting resources so we render with correct colors immediately
+        const activeIds = result.qurls
+          .filter((q) => q.status === 'active')
+          .map((q) => q.resource_id);
+
+        let newDetails: Record<string, ResourceDetail> = {};
+        if (activeIds.length > 0) {
+          const detailResults = await Promise.allSettled(
+            activeIds.map((id) => window.qurl.qurls.get(id))
+          );
+          detailResults.forEach((d, i) => {
+            if (d.status === 'fulfilled' && d.value.success && d.value.resource) {
+              newDetails[activeIds[i]] = d.value.resource;
+            }
+          });
+        }
+
+        // Set both in a single render cycle
+        setResourceDetails((prev) => ({ ...prev, ...newDetails }));
         setResources(result.qurls);
       }
     } catch {
@@ -569,9 +647,12 @@ export function Resources() {
       {/* ================================================================== */}
       {/* Page header                                                        */}
       {/* ================================================================== */}
-      <div>
-        <div className="flex items-center justify-between mb-1">
-          <h1 className="text-xl font-semibold tracking-tight">Protected Resources</h1>
+      <div style={{ animation: 'fadeIn 400ms cubic-bezier(0.16, 1, 0.3, 1) both' }}>
+        <h1 className="text-xl font-semibold tracking-tight mb-1">Protected Resources</h1>
+        <div className="flex items-center justify-between">
+          <p className="text-text-secondary text-[13px] leading-relaxed">
+            Manage your protected URLs, files, and services.
+          </p>
           <button
             onClick={() => {
               setShowCreate(!showCreate);
@@ -586,10 +667,6 @@ export function Resources() {
             {showCreate ? 'Cancel' : '+ New Resource'}
           </button>
         </div>
-        <p className="text-text-secondary text-[13px] leading-relaxed">
-          Manage the URLs, files, and services you protect with QURL. Each resource can have
-          multiple independent access links with their own expiry and policies.
-        </p>
       </div>
 
       {/* ================================================================== */}
@@ -739,39 +816,52 @@ export function Resources() {
         </div>
       ) : (
         <div className="flex flex-col gap-2">
-          {filteredResources.map((q) => {
+          {filteredResources.map((q, idx) => {
             const typeInfo = getTypeIndicator(q.target_url);
-            const statusStyle = getStatusStyle(q.status);
             const isExpanded = expandedId === q.resource_id;
             const detail = resourceDetails[q.resource_id];
             const isLoadingDetail = loadingDetail === q.resource_id;
             const resourceSessions = sessions[q.resource_id] || [];
             const isMintOpen = mintingFor === q.resource_id;
 
+            const effectiveState = getEffectiveState(q, detail);
+            const eStyle = getEffectiveStyle(effectiveState);
+
             return (
               <div
                 key={q.resource_id}
-                className={`bg-surface-2 rounded-xl border transition-all duration-200 ${
+                className={`relative rounded-xl overflow-hidden transition-all duration-200 ${
                   isExpanded
-                    ? 'border-glass-border-hover shadow-lg'
-                    : 'border-glass-border hover:border-glass-border-hover'
-                }`}
+                    ? `bg-surface-2 ${eStyle.borderClass} border shadow-lg`
+                    : `bg-surface-2 border ${eStyle.borderClass} hover:border-glass-border-hover ${eStyle.glowClass}`
+                } ${effectiveState === 'revoked' || effectiveState === 'expired' ? 'opacity-60' : ''}`}
+                style={{ animation: `fadeIn 350ms cubic-bezier(0.16, 1, 0.3, 1) ${idx * 40}ms both` }}
               >
+                {/* Left accent bar */}
+                <div className={`absolute left-0 top-0 bottom-0 w-[3px] ${
+                  effectiveState === 'sharing' ? 'bg-success'
+                    : effectiveState === 'dormant' ? 'bg-warning'
+                    : effectiveState === 'revoked' ? 'bg-danger'
+                    : 'bg-transparent'
+                }`} />
+
                 {/* ---- Collapsed card header ---- */}
                 <button
                   onClick={() => handleToggleExpand(q.resource_id)}
-                  className="w-full px-4 py-3.5 flex items-center gap-3 cursor-pointer bg-transparent text-left group"
+                  className="w-full pl-5 pr-4 py-3.5 flex items-center gap-3 cursor-pointer bg-transparent text-left group"
                 >
-                  {/* Status dot */}
+                  {/* Status indicator */}
                   <span
-                    className={`w-2 h-2 rounded-full shrink-0 ${statusStyle.dotClass} ${
-                      q.status === 'active' ? 'shadow-[0_0_6px_var(--color-success)]' : ''
+                    className={`w-2 h-2 rounded-full shrink-0 ${eStyle.dotClass} ${
+                      effectiveState === 'sharing' ? 'shadow-[0_0_6px_var(--color-success)]' : ''
                     }`}
                   />
 
                   {/* Label & URL */}
                   <div className="flex flex-col gap-0.5 min-w-0 flex-1">
-                    <span className="font-semibold text-[13px] text-text-primary truncate leading-tight">
+                    <span className={`font-semibold text-[13px] truncate leading-tight ${
+                      effectiveState === 'revoked' || effectiveState === 'expired' ? 'text-text-muted' : 'text-text-primary'
+                    }`}>
                       {q.label || q.target_url}
                     </span>
                     {q.label && (
@@ -788,11 +878,9 @@ export function Resources() {
                     {typeInfo.label}
                   </span>
 
-                  {/* Status text */}
-                  <span
-                    className={`text-[11px] font-medium shrink-0 ${statusStyle.textClass}`}
-                  >
-                    {q.status}
+                  {/* Effective status label */}
+                  <span className={`text-[11px] font-semibold shrink-0 ${eStyle.textClass}`}>
+                    {eStyle.label}
                   </span>
 
                   {/* Chevron */}
@@ -833,6 +921,21 @@ export function Resources() {
                       <div className="flex items-center gap-2 text-text-muted text-xs px-5 py-3">
                         <Spinner />
                         Loading details...
+                      </div>
+                    )}
+
+                    {/* Dormant state banner — shown when resource is active but has no usable links */}
+                    {detail && q.status === 'active' && !detail.qurls.some((t) => t.status === 'active') && (
+                      <div className="mx-5 mb-3 flex items-start gap-2.5 py-2.5 px-3.5 rounded-lg bg-warning-dim border border-[rgba(245,158,11,0.15)]">
+                        <svg className="w-4 h-4 text-warning shrink-0 mt-0.5" viewBox="0 0 24 24" fill="currentColor">
+                          <path d="M1 21h22L12 2 1 21zm12-3h-2v-2h2v2zm0-4h-2v-4h2v4z" />
+                        </svg>
+                        <div>
+                          <span className="text-[12px] text-warning font-medium block">No active access links</span>
+                          <span className="text-[11px] text-text-muted block mt-0.5">
+                            All links for this resource are expired or revoked. Mint a new link to share it again.
+                          </span>
+                        </div>
                       </div>
                     )}
 

@@ -320,6 +320,8 @@ export function setupIpcHandlers(): void {
   // --- Tunnel/service management (uses qurl-frpc CLI) ---
 
   ipcMain.handle('tunnels:list', async () => {
+    // Self-heal: ensure qurl-files route exists every time we list
+    sidecar.ensureFilesRoute();
     try {
       const frpc = getFrpcPath();
       const { stdout } = await execFileAsync(frpc, ['list', '--json', '--config', sidecar.getConfigPath()]);
@@ -1098,6 +1100,21 @@ export function setupIpcHandlers(): void {
     if (result.canceled) return null;
     return result.filePaths;
   });
+
+  ipcMain.handle('dialog:readImagePreview', async (_event, filePath: string) => {
+    try {
+      const data = fs.readFileSync(filePath);
+      const ext = path.extname(filePath).toLowerCase();
+      const mimeMap: Record<string, string> = {
+        '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg',
+        '.gif': 'image/gif', '.webp': 'image/webp',
+      };
+      const mime = mimeMap[ext] || 'image/png';
+      return `data:${mime};base64,${data.toString('base64')}`;
+    } catch {
+      return null;
+    }
+  });
 }
 
 export function cleanupShares(): void {
@@ -1147,21 +1164,10 @@ export async function initFileServer(): Promise<void> {
   cleanOrphanedShares();
   persistShares();
 
-  // If there are active shares, start the file server and keep the qurl-files route
+  // Start the file server if there are active shares to serve
   if (activeShares.size > 0) {
     await ensureFileServer();
-  } else {
-    // No active shares — remove the qurl-files route from config
-    try {
-      const frpc = sidecar.getBinaryPath();
-      const configPath = sidecar.getConfigPath();
-      if (fs.existsSync(configPath)) {
-        const { stdout } = await execFileAsync(frpc, ['list', '--json', '--config', configPath]);
-        const routes = JSON.parse(stdout) as Array<{ Name: string }>;
-        if (routes.some((r) => r.Name === 'qurl-files')) {
-          await execFileAsync(frpc, ['remove', 'qurl-files', '--config', configPath]);
-        }
-      }
-    } catch { /* best effort */ }
   }
+  // Note: qurl-files route is always kept (managed by sidecar.ensureFilesRoute).
+  // The file server starts on-demand when files are shared.
 }

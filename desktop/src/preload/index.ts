@@ -54,5 +54,6 @@ contextBridge.exposeInMainWorld('qurl', {
   },
   dialog: {
     openFile: () => ipcRenderer.invoke('dialog:openFile'),
+    readImagePreview: (filePath: string) => ipcRenderer.invoke('dialog:readImagePreview', filePath),
   },
 });

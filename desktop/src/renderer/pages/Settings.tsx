@@ -105,7 +105,7 @@ export function Settings() {
   return (
     <div className="flex flex-col gap-5">
       {/* Page header */}
-      <div>
+      <div style={{ animation: 'fadeIn 400ms cubic-bezier(0.16, 1, 0.3, 1) both' }}>
         <h1 className="text-xl font-semibold tracking-tight mb-1">Settings</h1>
         <p className="text-text-secondary text-[13px]">
           Configure your QURL Desktop preferences.
@@ -113,7 +113,7 @@ export function Settings() {
       </div>
 
       {/* Account */}
-      <div className="bg-surface-2 rounded-xl p-5 border border-glass-border flex items-center justify-between">
+      <div style={{ animation: 'fadeIn 400ms cubic-bezier(0.16, 1, 0.3, 1) 60ms both' }} className="bg-surface-2 rounded-xl p-5 border border-glass-border flex items-center justify-between">
         <div>
           <div className="font-semibold text-sm mb-1">Account</div>
           <p className="text-xs text-text-secondary mt-1">
@@ -135,7 +135,7 @@ export function Settings() {
       </div>
 
       {/* QURL Defaults */}
-      <div>
+      <div style={{ animation: 'fadeIn 400ms cubic-bezier(0.16, 1, 0.3, 1) 120ms both' }}>
         <div className="font-semibold text-sm mb-3">QURL Defaults</div>
         <p className="text-xs text-text-secondary mb-3.5">
           Default settings applied when creating new QURLs by type.

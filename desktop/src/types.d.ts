@@ -223,6 +223,7 @@ interface QUrlBridge {
   };
   dialog: {
     openFile: () => Promise<string[] | null>;
+    readImagePreview: (filePath: string) => Promise<string | null>;
   };
 }
 

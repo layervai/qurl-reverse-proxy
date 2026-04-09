@@ -328,7 +328,12 @@ export function Home({ navigateTo, isGuest }: HomeProps) {
       for (const file of files) {
         const filePath = (file as File & { path?: string }).path;
         if (!filePath) { setError('Could not determine file path'); continue; }
-        if (isImageFile(file.name)) { try { setImagePreview(`file://${filePath}`); } catch {} }
+        if (isImageFile(file.name)) {
+          try {
+            const dataUrl = await window.qurl.dialog.readImagePreview(filePath);
+            if (dataUrl) setImagePreview(dataUrl);
+          } catch {}
+        }
         const result = await window.qurl.share.file(filePath, file.name, buildOptions());
         if (!result.success) { setError(result.error || 'Failed to share file'); continue; }
         if (result.qurl) {
@@ -491,8 +496,8 @@ export function Home({ navigateTo, isGuest }: HomeProps) {
           <div className="relative">
             <DropZone onDrop={handleDrop} disabled={isSharing} />
             {imagePreview && (
-              <div className="absolute top-3 right-3 w-14 h-14 rounded-lg overflow-hidden border-2 border-glass-border-hover shadow-lg animate-in">
-                <img src={imagePreview} alt="preview" className="w-full h-full object-cover" />
+              <div className="absolute top-3 right-3 w-20 h-20 rounded-xl overflow-hidden border-2 border-glass-border-hover shadow-lg animate-in bg-surface-1">
+                <img src={imagePreview} className="w-full h-full object-cover" />
               </div>
             )}
           </div>

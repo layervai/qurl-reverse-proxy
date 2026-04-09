@@ -1,6 +1,5 @@
 import { app, BrowserWindow, nativeImage } from 'electron';
 import path from 'path';
-import fs from 'fs';
 import { setupIpcHandlers, cleanupShares, initFileServer } from './ipc';
 import { createTray, destroyTray } from './tray';
 import { sidecar } from './ipc';

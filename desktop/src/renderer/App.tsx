@@ -54,6 +54,7 @@ export function App() {
   const [authMode, setAuthMode] = useState<AuthMode>('none');
   const [email, setEmail] = useState<string | null>(null);
   const [apiKeyHint, setApiKeyHint] = useState<string | null>(null);
+  const [showSignOutConfirm, setShowSignOutConfirm] = useState(false);
 
   useEffect(() => {
     const savedMode = localStorage.getItem('qurl:authMode') as AuthMode | null;
@@ -165,13 +166,67 @@ export function App() {
             v0.1.0
           </span>
           <button
-            onClick={handleSignOut}
-            className="text-[11px] text-text-tertiary bg-transparent cursor-pointer px-2 py-0.5 rounded-sm font-medium transition-all duration-150 ease-out hover:text-danger hover:bg-danger-dim"
+            onClick={() => setShowSignOutConfirm(true)}
+            className="flex items-center gap-1.5 text-[11px] text-text-tertiary bg-transparent cursor-pointer px-2 py-1 rounded-lg font-medium transition-all duration-150 ease-out hover:text-danger hover:bg-danger-dim group"
+            title="Sign out"
           >
+            <svg className="w-3.5 h-3.5 transition-transform duration-200 group-hover:-translate-x-0.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
+              <polyline points="16 17 21 12 16 7" />
+              <line x1="21" y1="12" x2="9" y2="12" />
+            </svg>
             Sign Out
           </button>
         </div>
       </nav>
+
+      {/* ── Sign Out Confirmation ── */}
+      {showSignOutConfirm && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-[2px]"
+          onClick={() => setShowSignOutConfirm(false)}
+        >
+          <div
+            className="bg-surface-1 rounded-xl border border-glass-border shadow-xl p-6 max-w-sm w-full mx-4 animate-in"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center gap-3 mb-3">
+              <div className="w-10 h-10 rounded-lg bg-danger-dim flex items-center justify-center">
+                <svg className="w-5 h-5 text-danger" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
+                  <polyline points="16 17 21 12 16 7" />
+                  <line x1="21" y1="12" x2="9" y2="12" />
+                </svg>
+              </div>
+              <div>
+                <h3 className="text-[15px] font-semibold">Sign Out</h3>
+                <p className="text-[12px] text-text-muted">
+                  {isGuest ? 'Exit guest mode' : (email || apiKeyHint || 'Your account')}
+                </p>
+              </div>
+            </div>
+            <p className="text-[13px] text-text-secondary mb-5 leading-relaxed">
+              {isGuest
+                ? 'You will return to the sign-in screen. Tunnel connections will be stopped.'
+                : 'Active tunnel connections will be stopped and you will need to sign in again to create or manage QURLs.'}
+            </p>
+            <div className="flex justify-end gap-2.5">
+              <button
+                onClick={() => setShowSignOutConfirm(false)}
+                className="px-4 py-2 rounded-lg text-xs font-medium bg-surface-3 text-text-secondary hover:bg-surface-4 cursor-pointer transition-colors duration-150"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => { setShowSignOutConfirm(false); handleSignOut(); }}
+                className="px-4 py-2 rounded-lg text-xs font-semibold cursor-pointer transition-all duration-150 bg-danger text-white hover:bg-[#dc2626]"
+              >
+                Sign Out
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ── Main Content ── */}
       <main className="flex-1 overflow-auto px-6 pb-6 pt-12 bg-surface-0">

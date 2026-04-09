@@ -230,7 +230,7 @@ export function Dashboard() {
       )}
 
       {/* Page header */}
-      <div>
+      <div style={{ animation: 'fadeIn 400ms cubic-bezier(0.16, 1, 0.3, 1) both' }}>
         <h1 className="text-xl font-semibold tracking-tight mb-1">Connections</h1>
         <p className="text-text-secondary text-[13px]">
           Manage tunnels to expose your private services through QURL.
@@ -239,6 +239,7 @@ export function Dashboard() {
 
       {/* Tunnel status card */}
       <div
+        style={{ animation: 'fadeIn 400ms cubic-bezier(0.16, 1, 0.3, 1) 60ms both' }}
         className={`
           bg-surface-2 rounded-xl px-5 py-4 border flex items-center justify-between
           transition-all duration-300
@@ -314,7 +315,7 @@ export function Dashboard() {
       )}
 
       {/* Services list */}
-      <div>
+      <div style={{ animation: 'fadeIn 400ms cubic-bezier(0.16, 1, 0.3, 1) 120ms both' }}>
         <div className="flex items-center justify-between mb-3">
           <h2 className="text-sm font-semibold text-text-secondary">
             Services ({tunnels.length})
@@ -507,11 +508,27 @@ export function Dashboard() {
                       </div>
                     </div>
 
-                    {/* Public URL / Resource ID — compact metadata row */}
-                    {t.enabled && (t.resourceId || t.publicUrl) && (
-                      <div className="flex gap-4 text-[11px] text-text-muted mt-2.5 pl-[52px]">
-                        {t.publicUrl && (
-                          <span className="font-mono text-accent truncate">{t.publicUrl}</span>
+                    {/* Metadata row */}
+                    {t.enabled && (
+                      <div className="flex items-center gap-4 text-[11px] text-text-muted mt-2.5 pl-[52px]">
+                        {isBuiltIn && isActive && (
+                          <button
+                            onClick={() => {
+                              const url = `http://127.0.0.1:${t.localPort}`;
+                              window.open(url, '_blank');
+                            }}
+                            className="text-accent hover:underline cursor-pointer bg-transparent font-sans text-[11px]"
+                          >
+                            Browse shared files
+                          </button>
+                        )}
+                        {!isBuiltIn && t.publicUrl && (
+                          <button
+                            onClick={() => window.open(t.publicUrl!, '_blank')}
+                            className="font-mono text-accent hover:underline cursor-pointer bg-transparent text-[11px] truncate"
+                          >
+                            {t.publicUrl}
+                          </button>
                         )}
                         {t.resourceId && (
                           <span className="shrink-0">
