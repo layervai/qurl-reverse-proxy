@@ -4,7 +4,6 @@ import http from 'http';
 import path from 'path';
 import fs from 'fs';
 import os from 'os';
-import zlib from 'zlib';
 import { execFile } from 'child_process';
 import { promisify } from 'util';
 import { SidecarManager } from './sidecar';
@@ -49,6 +48,9 @@ export interface AppUpdateInfo {
   current: string;
   latest: string;
   releaseUrl: string;
+  status: 'available' | 'downloading' | 'downloaded' | 'error';
+  downloadProgress?: number;
+  error?: string;
 }
 
 export interface UpdateCheckResult {
@@ -60,43 +62,44 @@ export interface UpdateCheckResult {
  * Manages background update checking, downloading, and applying for both
  * the tunnel sidecar binary and the desktop app.
  *
- * Pattern (matching Claude desktop):
- *   1. Background: check GitHub API → detect new version
- *   2. Background: download new binary to staging dir
- *   3. Push to renderer: "Updated to vX.Y.Z" — banner appears
- *   4. User clicks "Relaunch" → stop sidecar → swap binary → restart
+ * Sidecar updates: custom GitHub Releases logic (download tarball, stage, swap).
+ * App updates (packaged): electron-updater (auto-download + quit-and-install).
+ * App updates (dev): manual GitHub API check, shows link to releases page.
  */
 export class UpdateManager {
   private checkTimer: ReturnType<typeof setInterval> | null = null;
   private initialTimer: ReturnType<typeof setTimeout> | null = null;
   private updating = false;
   private cachedResult: UpdateCheckResult | null = null;
+  private onUpdateCallback: ((result: UpdateCheckResult) => void) | null = null;
+  private appUpdaterReady = false;
 
   /**
    * Start periodic update checks. Runs an initial check after a short
    * delay, then every CHECK_INTERVAL_MS.
    */
   startPeriodicCheck(onUpdate: (result: UpdateCheckResult) => void): void {
+    this.onUpdateCallback = onUpdate;
+
     // Load cached result for immediate use.
     this.cachedResult = this.loadCache();
 
-    // If we have a cached result with a downloaded update, notify immediately.
+    // If we have a cached result with a downloaded tunnel update, notify immediately.
     if (this.cachedResult?.tunnelUpdate?.downloaded) {
       onUpdate(this.cachedResult);
     }
 
+    // Initialize electron-updater for app updates in packaged builds.
+    if (app.isPackaged) {
+      this.initAppUpdater();
+    }
+
     this.initialTimer = setTimeout(async () => {
-      const result = await this.checkAndDownload();
-      if (result && (result.tunnelUpdate?.downloaded || result.appUpdate)) {
-        onUpdate(result);
-      }
+      await this.runCheck();
     }, INITIAL_DELAY_MS);
 
     this.checkTimer = setInterval(async () => {
-      const result = await this.checkAndDownload();
-      if (result && (result.tunnelUpdate?.downloaded || result.appUpdate)) {
-        onUpdate(result);
-      }
+      await this.runCheck();
     }, CHECK_INTERVAL_MS);
   }
 
@@ -118,12 +121,12 @@ export class UpdateManager {
    * Manually trigger an update check. Returns the result.
    */
   async checkForUpdates(): Promise<UpdateCheckResult> {
-    const result = await this.checkAndDownload();
+    const result = await this.runCheck();
     return result ?? { tunnelUpdate: null, appUpdate: null };
   }
 
   /**
-   * Apply a staged tunnel update: stop sidecar → swap binary → restart.
+   * Apply a staged tunnel update: stop sidecar -> swap binary -> restart.
    */
   async applyAndRelaunch(sidecar: SidecarManager): Promise<{ restarted: boolean }> {
     if (this.updating) {
@@ -167,6 +170,18 @@ export class UpdateManager {
   }
 
   /**
+   * Install a downloaded app update. Quits the app and installs the new version.
+   */
+  installAppUpdate(): void {
+    if (!app.isPackaged) {
+      throw new Error('App auto-update is only available in packaged builds');
+    }
+    // electron-updater handles quit + install + relaunch.
+    const { autoUpdater } = require('electron-updater');
+    autoUpdater.quitAndInstall(false, true);
+  }
+
+  /**
    * Return the last known update status (from cache or recent check).
    */
   getStatus(): UpdateCheckResult {
@@ -175,19 +190,130 @@ export class UpdateManager {
 
   // ── Private methods ──
 
-  private async checkAndDownload(): Promise<UpdateCheckResult | null> {
+  /**
+   * Initialize electron-updater for seamless app auto-updates.
+   * Only called when app.isPackaged is true.
+   */
+  private initAppUpdater(): void {
+    try {
+      const { autoUpdater } = require('electron-updater');
+
+      autoUpdater.autoDownload = true;
+      autoUpdater.autoInstallOnAppQuit = true;
+      autoUpdater.autoRunAppAfterInstall = true;
+
+      autoUpdater.on('update-available', (info: { version: string }) => {
+        this.updateAppStatus({
+          current: app.getVersion(),
+          latest: `v${info.version}`,
+          releaseUrl: `https://github.com/${GITHUB_REPO}/releases/tag/v${info.version}`,
+          status: 'downloading',
+          downloadProgress: 0,
+        });
+      });
+
+      autoUpdater.on('download-progress', (progress: { percent: number }) => {
+        if (this.cachedResult?.appUpdate) {
+          this.cachedResult.appUpdate.downloadProgress = Math.round(progress.percent);
+          this.cachedResult.appUpdate.status = 'downloading';
+          this.notifyRenderer();
+        }
+      });
+
+      autoUpdater.on('update-downloaded', (info: { version: string }) => {
+        this.updateAppStatus({
+          current: app.getVersion(),
+          latest: `v${info.version}`,
+          releaseUrl: `https://github.com/${GITHUB_REPO}/releases/tag/v${info.version}`,
+          status: 'downloaded',
+          downloadProgress: 100,
+        });
+      });
+
+      autoUpdater.on('error', (err: Error) => {
+        console.error('[updater] app auto-update error:', err.message);
+        if (this.cachedResult?.appUpdate) {
+          this.cachedResult.appUpdate.status = 'error';
+          this.cachedResult.appUpdate.error = err.message;
+          this.notifyRenderer();
+        }
+      });
+
+      this.appUpdaterReady = true;
+    } catch (err) {
+      console.error('[updater] failed to init electron-updater:', (err as Error).message);
+    }
+  }
+
+  private updateAppStatus(appUpdate: AppUpdateInfo): void {
+    this.cachedResult = {
+      ...this.getStatus(),
+      appUpdate,
+    };
+    this.notifyRenderer();
+  }
+
+  private notifyRenderer(): void {
+    if (this.onUpdateCallback && this.cachedResult) {
+      this.onUpdateCallback(this.cachedResult);
+    }
+  }
+
+  /**
+   * Run a full update check cycle:
+   * - Sidecar: custom GitHub API check + download
+   * - App (packaged): trigger electron-updater check
+   * - App (dev): manual GitHub API version comparison
+   */
+  private async runCheck(): Promise<UpdateCheckResult | null> {
+    try {
+      // Check sidecar updates via our custom GitHub logic.
+      const sidecarResult = await this.checkSidecarUpdate();
+
+      // Check app updates.
+      if (app.isPackaged && this.appUpdaterReady) {
+        // electron-updater handles its own check/download cycle via events.
+        try {
+          const { autoUpdater } = require('electron-updater');
+          await autoUpdater.checkForUpdates();
+        } catch (err) {
+          console.error('[updater] electron-updater check failed:', (err as Error).message);
+        }
+      } else {
+        // Dev mode: manual version comparison for informational display.
+        await this.checkAppUpdateManual();
+      }
+
+      if (sidecarResult || this.cachedResult?.appUpdate) {
+        this.notifyRenderer();
+      }
+
+      return this.cachedResult;
+    } catch (err) {
+      console.error('[updater] check failed:', (err as Error).message);
+      return null;
+    }
+  }
+
+  /**
+   * Check for sidecar binary updates using the GitHub Releases API.
+   * Downloads the update in the background if available.
+   */
+  private async checkSidecarUpdate(): Promise<TunnelUpdateInfo | null> {
     try {
       // Check if cached result is still fresh.
       const cached = this.loadCache();
       if (cached && Date.now() - cached.checkedAt < CHECK_INTERVAL_MS) {
-        this.cachedResult = { tunnelUpdate: cached.tunnelUpdate, appUpdate: cached.appUpdate };
-        return this.cachedResult;
+        if (this.cachedResult) {
+          this.cachedResult.tunnelUpdate = cached.tunnelUpdate;
+        }
+        return cached.tunnelUpdate;
       }
 
       const release = await this.fetchLatestRelease(cached?.etag);
       if (!release) {
         // 304 Not Modified — cache is still valid.
-        return this.cachedResult;
+        return this.cachedResult?.tunnelUpdate ?? null;
       }
 
       const { data, etag } = release;
@@ -195,12 +321,9 @@ export class UpdateManager {
 
       // Get current tunnel version.
       const tunnelVersion = await this.getTunnelVersion();
-      const appVersion = app.getVersion();
 
       let tunnelUpdate: TunnelUpdateInfo | null = null;
-      let appUpdate: AppUpdateInfo | null = null;
 
-      // Check tunnel update.
       if (tunnelVersion && tunnelVersion !== 'dev' && compareSemver(latestVersion, tunnelVersion) > 0) {
         const assetName = this.getAssetName(latestVersion);
         const asset = data.assets.find(a => a.name === assetName);
@@ -219,35 +342,67 @@ export class UpdateManager {
             await this.downloadUpdate(asset.browser_download_url);
             tunnelUpdate.downloaded = true;
           } catch (err) {
-            console.error('[updater] download failed:', (err as Error).message);
+            console.error('[updater] tunnel download failed:', (err as Error).message);
           }
         }
       }
 
-      // Check app update.
+      // Cache the sidecar result.
+      this.saveCache({
+        tunnelUpdate,
+        appUpdate: this.cachedResult?.appUpdate ?? null,
+        checkedAt: Date.now(),
+        etag,
+      });
+
+      if (!this.cachedResult) {
+        this.cachedResult = { tunnelUpdate, appUpdate: null };
+      } else {
+        this.cachedResult.tunnelUpdate = tunnelUpdate;
+      }
+
+      return tunnelUpdate;
+    } catch (err) {
+      console.error('[updater] sidecar check failed:', (err as Error).message);
+      return null;
+    }
+  }
+
+  /**
+   * Dev-mode app update check: compare app version against GitHub release tag.
+   * Shows a link to the releases page (no auto-download).
+   */
+  private async checkAppUpdateManual(): Promise<void> {
+    try {
+      const cached = this.loadCache();
+      const release = await this.fetchLatestRelease(cached?.etag);
+      if (!release) return;
+
+      const { data } = release;
+      const latestVersion = data.tag_name;
+      const appVersion = app.getVersion();
+
       if (appVersion && appVersion !== '0.0.0' && compareSemver(latestVersion, appVersion) > 0) {
-        appUpdate = {
+        const appUpdate: AppUpdateInfo = {
           current: appVersion,
           latest: latestVersion,
           releaseUrl: data.html_url,
+          status: 'available',
         };
+
+        if (!this.cachedResult) {
+          this.cachedResult = { tunnelUpdate: null, appUpdate };
+        } else {
+          this.cachedResult.appUpdate = appUpdate;
+        }
       }
-
-      // Cache the result.
-      this.saveCache({ tunnelUpdate, appUpdate, checkedAt: Date.now(), etag });
-      this.cachedResult = { tunnelUpdate, appUpdate };
-
-      return this.cachedResult;
-    } catch (err) {
-      console.error('[updater] check failed:', (err as Error).message);
-      return null;
+    } catch {
+      // Best effort in dev mode.
     }
   }
 
   private async getTunnelVersion(): Promise<string | null> {
     try {
-      // First try to get the binary path from a SidecarManager instance.
-      // We create a temporary one just for path resolution.
       const tmpSidecar = new SidecarManager();
       const binaryPath = tmpSidecar.getBinaryPath();
 
@@ -261,7 +416,6 @@ export class UpdateManager {
       const match = stdout.match(/qurl-proxy\s+(v?\d+\.\d+\.\d+)/);
       if (match) return match[1].startsWith('v') ? match[1] : `v${match[1]}`;
 
-      // If "dev" appears, return dev.
       if (stdout.includes('dev')) return 'dev';
 
       return null;
@@ -293,7 +447,7 @@ export class UpdateManager {
 
       const req = https.request(options, (res) => {
         if (res.statusCode === 304) {
-          resolve(null); // Not modified
+          resolve(null);
           return;
         }
 
@@ -321,7 +475,6 @@ export class UpdateManager {
   }
 
   private async downloadUpdate(assetUrl: string): Promise<void> {
-    // Clean any previous staging.
     if (fs.existsSync(STAGING_DIR)) {
       fs.rmSync(STAGING_DIR, { recursive: true });
     }
@@ -332,7 +485,6 @@ export class UpdateManager {
     await this.downloadFile(assetUrl, tarballPath);
     await this.extractTarGz(tarballPath);
 
-    // Remove the tarball after extraction.
     fs.unlinkSync(tarballPath);
   }
 
@@ -349,9 +501,8 @@ export class UpdateManager {
 
         requestFn(requestUrl, {
           headers: { 'User-Agent': `qurl-desktop/${app.getVersion()}` },
-          timeout: 120000, // 2 minutes for download
+          timeout: 120000,
         }, (res) => {
-          // Follow redirects (GitHub asset downloads redirect to S3).
           if (res.statusCode && res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
             doRequest(res.headers.location, redirectCount + 1);
             return;
@@ -377,13 +528,11 @@ export class UpdateManager {
     return new Promise((resolve, reject) => {
       const binaryName = process.platform === 'win32' ? 'qurl-frpc.exe' : 'qurl-frpc';
 
-      // Use tar command (available on macOS, Linux, and modern Windows).
       const { execFile: execFileCb } = require('child_process');
       execFileCb('tar', ['xzf', tarballPath, '-C', STAGING_DIR, binaryName, '--include=sdk/*'], {
         timeout: 30000,
       }, (err: Error | null) => {
         if (err) {
-          // Fallback: extract only the binary using tar without --include.
           execFileCb('tar', ['xzf', tarballPath, '-C', STAGING_DIR, binaryName], {
             timeout: 30000,
           }, (err2: Error | null) => {
@@ -447,7 +596,6 @@ function applyStaged(stagingDir: string, installDir: string, binaryName: string)
 
     for (const entry of entries) {
       if (entry.isDirectory() && entry.name === 'sdk') {
-        // Handle sdk/ subdirectory.
         const srcSdk = path.join(stagingDir, 'sdk');
         const dstSdk = path.join(installDir, 'sdk');
         if (!fs.existsSync(dstSdk)) fs.mkdirSync(dstSdk, { recursive: true });
@@ -479,7 +627,6 @@ function applyStaged(stagingDir: string, installDir: string, binaryName: string)
 
       fs.copyFileSync(src, dst);
 
-      // Ensure binary is executable.
       if (entry.name === binaryName) {
         fs.chmodSync(dst, 0o755);
       }
@@ -499,7 +646,6 @@ function applyStaged(stagingDir: string, installDir: string, binaryName: string)
 
 /**
  * Compare two semver strings. Returns >0 if a > b, <0 if a < b, 0 if equal.
- * Handles "v" prefix and "dev" (always less than any version).
  */
 function compareSemver(a: string, b: string): number {
   const parse = (s: string): [number, number, number] | null => {

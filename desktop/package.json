@@ -7,12 +7,19 @@
     "dev": "vite",
     "build": "tsc && vite build && tsc -p tsconfig.main.json",
     "preview": "vite preview",
-    "start": "electron dist/main/index.js"
+    "start": "electron dist/main/index.js",
+    "pack": "npm run build && electron-builder --dir",
+    "dist": "npm run build && electron-builder",
+    "dist:mac": "npm run build && electron-builder --mac",
+    "dist:win": "npm run build && electron-builder --win",
+    "postinstall": "electron-builder install-app-deps"
   },
   "dependencies": {
-    "@layerv/qurl": "file:../../qurl-typescript"
+    "@layerv/qurl": "file:../../qurl-typescript",
+    "electron-updater": "^6.3.0"
   },
   "devDependencies": {
+    "electron-builder": "^25.1.0",
     "@tailwindcss/vite": "^4.2.2",
     "@types/react": "^18.3.0",
     "@types/react-dom": "^18.3.0",

@@ -52,7 +52,7 @@ interface TunnelService {
 
 // --- Navigation ---
 
-type PageId = 'home' | 'resources' | 'connections' | 'settings';
+type PageId = 'home' | 'qurls-files' | 'qurls-http' | 'qurls-ssh' | 'settings';
 
 // --- QURL Types ---
 
@@ -171,9 +171,9 @@ interface ResourceTypeDefaults {
 }
 
 interface QURLDefaults {
-  url: ResourceTypeDefaults;
+  http: ResourceTypeDefaults;
   file: ResourceTypeDefaults;
-  service: ResourceTypeDefaults;
+  ssh: ResourceTypeDefaults;
   autoStartTunnel?: boolean;
 }
 
@@ -230,6 +230,7 @@ interface QUrlBridge {
   update: {
     check: () => Promise<UpdateStatus>;
     applyAndRelaunch: () => Promise<UpdateApplyResult>;
+    installAppUpdate: () => Promise<IpcResult>;
     onUpdateReady: (callback: (status: UpdateStatus) => void) => void;
     removeUpdateListener: () => void;
   };
@@ -251,6 +252,9 @@ interface AppUpdateInfo {
   current: string;
   latest: string;
   releaseUrl: string;
+  status: 'available' | 'downloading' | 'downloaded' | 'error';
+  downloadProgress?: number;
+  error?: string;
 }
 
 interface UpdateStatus {

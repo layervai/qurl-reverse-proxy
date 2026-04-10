@@ -236,6 +236,21 @@ export async function signInWithAPIKey(apiKey: string): Promise<AuthTokens> {
     throw new Error(`API validation failed (HTTP ${resp.status}). Please try again.`);
   }
 
+  // Fetch user identity from /v1/me (works with API key auth).
+  let email: string | undefined;
+  try {
+    const meResp = await fetch(`${baseURL}/me`, {
+      method: 'GET',
+      headers: { Authorization: `Bearer ${apiKey}` },
+    });
+    if (meResp.ok) {
+      const meData = await meResp.json();
+      email = meData?.data?.email || undefined;
+    }
+  } catch {
+    // Non-fatal — fall back to masked key hint below.
+  }
+
   // Build a masked hint for display: "lv_live_...a3f2"
   const prefix = apiKey.slice(0, 8); // "lv_live_" or "lv_test_"
   const suffix = apiKey.slice(-4);
@@ -249,6 +264,7 @@ export async function signInWithAPIKey(apiKey: string): Promise<AuthTokens> {
     environment: env,
     isAPIKey: true,
     apiKeyHint: hint,
+    email,
   };
 
   persistTokens(currentTokens);

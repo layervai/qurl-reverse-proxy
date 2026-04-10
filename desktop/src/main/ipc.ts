@@ -130,15 +130,21 @@ function getFrpcPath(): string {
 
 // Default QURL settings per resource type
 const DEFAULT_QURL_DEFAULTS: QURLDefaults = {
-  url: { expires_in: '24h', one_time_use: false },
+  http: { expires_in: '24h', one_time_use: false },
   file: { expires_in: '1h', one_time_use: true },
-  service: { expires_in: '7d', one_time_use: false, session_duration: '1h' },
+  ssh: { expires_in: '7d', one_time_use: false, session_duration: '1h' },
 };
 
 function loadDefaults(): QURLDefaults {
   try {
     const data = fs.readFileSync(DEFAULTS_PATH, 'utf-8');
-    return { ...DEFAULT_QURL_DEFAULTS, ...JSON.parse(data) };
+    const parsed = JSON.parse(data);
+    // Migrate legacy keys: url → http, service → ssh
+    if (parsed.url && !parsed.http) parsed.http = parsed.url;
+    if (parsed.service && !parsed.ssh) parsed.ssh = parsed.service;
+    delete parsed.url;
+    delete parsed.service;
+    return { ...DEFAULT_QURL_DEFAULTS, ...parsed };
   } catch {
     return { ...DEFAULT_QURL_DEFAULTS };
   }
@@ -266,6 +272,7 @@ export function setupIpcHandlers(): void {
       const tokens = await auth.signInWithAPIKey(apiKey);
       return {
         success: true,
+        email: tokens.email,
         environment: tokens.environment,
         apiKeyHint: tokens.apiKeyHint,
       };
@@ -719,7 +726,7 @@ export function setupIpcHandlers(): void {
       const client = await getClient();
       if (!client) return { success: false, error: 'Sign in to share URLs' };
 
-      const defaults = loadDefaults().url;
+      const defaults = loadDefaults().http;
       const result = await client.create({
         target_url: targetUrl,
         expires_in: options?.expires_in || defaults.expires_in,
@@ -804,7 +811,7 @@ export function setupIpcHandlers(): void {
       } catch { /* fall through to original URL */ }
 
       // Create QURL pointing to the tunneled URL
-      const defaults = loadDefaults().url;
+      const defaults = loadDefaults().http;
       const qurlResult = await client.create({
         target_url: publicUrl,
         expires_in: options?.expires_in || defaults.expires_in,
@@ -856,7 +863,7 @@ export function setupIpcHandlers(): void {
       if (!route.Subdomain) return { success: false, error: `Service "${serviceName}" has no public subdomain` };
 
       const targetUrl = getTunnelTargetUrl(route.Subdomain);
-      const defaults = loadDefaults().service;
+      const defaults = loadDefaults().ssh;
 
       const result = await client.create({
         target_url: targetUrl,
@@ -1142,6 +1149,15 @@ export function setupIpcHandlers(): void {
     }
   });
 
+  ipcMain.handle('update:installAppUpdate', async () => {
+    try {
+      updater.installAppUpdate();
+      return { success: true };
+    } catch (err) {
+      return { success: false, error: formatApiError(err) };
+    }
+  });
+
   // --- App Info ---
 
   ipcMain.handle('app:version', () => {
@@ -1175,20 +1191,29 @@ export async function initFileServer(): Promise<void> {
   try { client = await getClient(); } catch { /* not signed in yet */ }
 
   for (const share of persisted) {
-    let isActive = false;
-    if (client && share.resourceId) {
-      try {
-        const q = await client.get(share.resourceId);
-        isActive = q.status === 'active';
-      } catch { /* resource not found = not active */ }
+    // If the file no longer exists locally, clean up regardless
+    if (share.filePath && !fs.existsSync(share.filePath)) {
+      removeTokenDir(share.filePath);
+      continue;
     }
 
-    if (isActive && share.filePath && fs.existsSync(share.filePath)) {
-      // Restore this share
-      activeShares.set(share.id, share);
+    if (client && share.resourceId) {
+      // We can verify — only keep confirmed-active shares
+      try {
+        const q = await client.get(share.resourceId);
+        if (q.status === 'active') {
+          activeShares.set(share.id, share);
+        } else {
+          if (share.filePath) { removeTokenDir(share.filePath); }
+        }
+      } catch {
+        // Resource not found — clean up
+        if (share.filePath) { removeTokenDir(share.filePath); }
+      }
     } else {
-      // Clean up revoked/expired/missing share files
-      if (share.filePath) { removeTokenDir(share.filePath); }
+      // Can't verify (not signed in yet) — keep the share alive
+      // so the file server starts. Will be cleaned up on next init.
+      activeShares.set(share.id, share);
     }
   }
 

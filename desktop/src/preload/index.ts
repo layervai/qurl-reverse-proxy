@@ -60,6 +60,7 @@ contextBridge.exposeInMainWorld('qurl', {
   update: {
     check: () => ipcRenderer.invoke('update:check'),
     applyAndRelaunch: () => ipcRenderer.invoke('update:applyAndRelaunch'),
+    installAppUpdate: () => ipcRenderer.invoke('update:installAppUpdate'),
     onUpdateReady: (callback: (status: UpdateStatus) => void) => {
       ipcRenderer.on('update:ready', (_event, status) => callback(status));
     },

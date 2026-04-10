@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 
 interface LoginProps {
-  onAuthenticated: (mode: 'account' | 'guest', email?: string, apiKeyHint?: string) => void;
+  onAuthenticated: (mode: 'account' | 'guest', email?: string) => void;
 }
 
 export function Login({ onAuthenticated }: LoginProps) {
@@ -18,7 +18,7 @@ export function Login({ onAuthenticated }: LoginProps) {
   useEffect(() => {
     window.qurl.auth.status().then((status) => {
       if (status.signedIn) {
-        onAuthenticated('account', status.email || undefined, status.apiKeyHint || undefined);
+        onAuthenticated('account', status.email || undefined);
       }
       setEnv(status.environment);
     });
@@ -53,7 +53,7 @@ export function Login({ onAuthenticated }: LoginProps) {
     setValidatingKey(true);
     try {
       const result = await window.qurl.auth.signInWithKey(apiKey);
-      if (result.success) onAuthenticated('account', undefined, result.apiKeyHint);
+      if (result.success) onAuthenticated('account', result.email || undefined);
       else setError(result.error || 'API key validation failed');
     } catch (err) {
       setError(String(err));

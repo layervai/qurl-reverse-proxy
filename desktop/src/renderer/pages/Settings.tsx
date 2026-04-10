@@ -11,11 +11,12 @@ const EXPIRY_OPTIONS = [
   { label: 'No expiry', value: '' },
 ];
 
-type DefaultsTab = 'url' | 'file';
+type DefaultsTab = 'file' | 'http' | 'ssh';
 
 const DEFAULTS_TABS: { id: DefaultsTab; label: string; desc: string }[] = [
-  { id: 'url', label: 'Links', desc: 'All URL-based QURLs — public websites and local/private services. Local URLs are automatically tunneled.' },
   { id: 'file', label: 'Files', desc: 'Local files and images shared from your machine. Files are served through a secure tunnel — the tunnel starts automatically.' },
+  { id: 'http', label: 'HTTP Services', desc: 'Web applications and HTTP APIs tunneled securely through QURL. Local URLs are automatically tunneled.' },
+  { id: 'ssh', label: 'SSH Services', desc: 'SSH servers exposed securely through a QURL TCP tunnel.' },
 ];
 
 function defaultsToOptions(d: ResourceTypeDefaults): Partial<QURLCreateInput> {
@@ -44,11 +45,11 @@ export function Settings() {
   const [isSignedIn, setIsSignedIn] = useState(false);
 
   // QURL defaults
-  const [defaultsTab, setDefaultsTab] = useState<DefaultsTab>('url');
+  const [defaultsTab, setDefaultsTab] = useState<DefaultsTab>('file');
   const [defaults, setDefaults] = useState<QURLDefaults>({
-    url: { expires_in: '24h', one_time_use: false },
+    http: { expires_in: '24h', one_time_use: false },
     file: { expires_in: '1h', one_time_use: true },
-    service: { expires_in: '7d', one_time_use: false },
+    ssh: { expires_in: '7d', one_time_use: false },
   });
 
   useEffect(() => {

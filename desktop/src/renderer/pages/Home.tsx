@@ -80,7 +80,7 @@ function CreatedLinkModal({
             onClick={() => { onClose(); onViewResources(); }}
             className="text-accent hover:underline cursor-pointer bg-transparent border-none p-0 font-inherit text-[12px]"
           >
-            Resources tab
+            Qurls tab
           </button>
           , where you can mint additional access links to the same target file or URL.
         </p>
@@ -144,7 +144,7 @@ function StatCard({
   return (
     <button
       onClick={onClick}
-      className={`flex-1 bg-surface-2 rounded-xl p-4 border border-glass-border ${c.glow} hover:border-glass-border-hover cursor-pointer transition-all duration-200 text-left group`}
+      className={`min-w-0 bg-surface-2 rounded-xl p-4 border border-glass-border ${c.glow} hover:border-glass-border-hover cursor-pointer transition-all duration-200 text-left group`}
       style={{ animation: `fadeIn 400ms cubic-bezier(0.16, 1, 0.3, 1) ${delay}ms both` }}
     >
       <div className="flex items-center gap-3 mb-2.5">
@@ -180,6 +180,12 @@ export function Home({ navigateTo, isGuest }: HomeProps) {
   const [tunnelRunning, setTunnelRunning] = useState(false);
   const [resourceCount, setResourceCount] = useState(0);
   const [serviceCount, setServiceCount] = useState(0);
+
+  // --- Tunnel controls (merged from Connections) ---
+  const [tunnelLoading, setTunnelLoading] = useState(false);
+  const [tunnelError, setTunnelError] = useState<string | null>(null);
+  const [fileSharingEnabled, setFileSharingEnabled] = useState(true);
+  const [togglingFileShare, setTogglingFileShare] = useState(false);
 
   // --- URL input ---
   const [urlInput, setUrlInput] = useState('');
@@ -254,6 +260,51 @@ export function Home({ navigateTo, isGuest }: HomeProps) {
       if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
     };
   }, [isGuest]);
+
+  // Check file sharing service status
+  const [fileSharePort, setFileSharePort] = useState<number | null>(null);
+  const [activeShareCount, setActiveShareCount] = useState(0);
+  useEffect(() => {
+    window.qurl.tunnels.list().then((list) => {
+      const fileService = list.find((t) => t.name === 'qurl-files');
+      if (fileService) {
+        setFileSharingEnabled(fileService.enabled);
+        setFileSharePort(fileService.localPort);
+      }
+    }).catch(() => {});
+    window.qurl.share.list().then((shares) => setActiveShareCount(shares.length)).catch(() => {});
+  }, []);
+
+  const handleToggleTunnel = useCallback(async () => {
+    setTunnelError(null);
+    setTunnelLoading(true);
+    try {
+      const result = tunnelRunning
+        ? await window.qurl.sidecar.stop()
+        : await window.qurl.sidecar.start();
+      if (!result.success) setTunnelError(result.error || 'Failed');
+    } catch (err) { setTunnelError(String(err)); }
+    finally {
+      setTunnelLoading(false);
+      try {
+        const status = await window.qurl.sidecar.status();
+        stableStatusRef.current = status.running;
+        setTunnelRunning(status.running);
+      } catch {
+        stableStatusRef.current = false;
+        setTunnelRunning(false);
+      }
+    }
+  }, [tunnelRunning]);
+
+  const handleToggleFileSharing = useCallback(async (enabled: boolean) => {
+    setTogglingFileShare(true);
+    try {
+      const result = await window.qurl.tunnels.toggle('qurl-files', enabled);
+      if (result.success) setFileSharingEnabled(enabled);
+    } catch { /* ignore */ }
+    finally { setTogglingFileShare(false); }
+  }, []);
 
   // --- URL helpers ---
 
@@ -352,7 +403,7 @@ export function Home({ navigateTo, isGuest }: HomeProps) {
         <CreatedLinkModal
           link={successLink}
           onClose={() => setSuccessLink(null)}
-          onViewResources={() => navigateTo('resources')}
+          onViewResources={() => navigateTo('qurls-files')}
         />
       )}
 
@@ -365,25 +416,100 @@ export function Home({ navigateTo, isGuest }: HomeProps) {
       </div>
 
       {/* ── Status cards ── */}
-      <div className="flex gap-3">
-        <StatCard
-          icon="M1 9l2 2c4.97-4.97 13.03-4.97 18 0l2-2C16.93 2.93 7.08 2.93 1 9zm8 8l3 3 3-3c-1.65-1.66-4.34-1.66-6 0zm-4-4l2 2c2.76-2.76 7.24-2.76 10 0l2-2C15.14 9.14 8.87 9.14 5 13z"
-          label="Tunnel"
-          value={tunnelStatusLabel}
-          accent={tunnelRunning ? 'green' : 'cyan'}
-          sub={serviceCount > 0 ? `${serviceCount} service${serviceCount !== 1 ? 's' : ''}` : undefined}
-          onClick={() => navigateTo('connections')}
-          delay={50}
-        />
+      <div className="grid grid-cols-3 gap-3">
+        {/* Qurls count */}
         <StatCard
           icon="M12 1L3 5v6c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V5l-9-4zm0 10.99h7c-.53 4.12-3.28 7.79-7 8.94V12H5V6.3l7-3.11v8.8z"
-          label="Resources"
+          label="Qurls"
           value={isGuest ? '--' : resourceCount}
           accent="purple"
           sub={isGuest ? 'Sign in' : 'protected'}
-          onClick={() => navigateTo('resources')}
-          delay={120}
+          onClick={() => navigateTo('qurls-files')}
+          delay={50}
         />
+
+        {/* Tunnel status with inline start/stop */}
+        <div
+          className={`min-w-0 bg-surface-2 rounded-xl p-4 border transition-all duration-200 ${
+            tunnelRunning
+              ? 'border-[rgba(16,185,129,0.15)] shadow-[0_0_20px_rgba(16,185,129,0.06)]'
+              : 'border-glass-border'
+          }`}
+          style={{ animation: 'fadeIn 400ms cubic-bezier(0.16, 1, 0.3, 1) 120ms both' }}
+        >
+          <div className="flex items-center gap-3 mb-2.5">
+            <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${tunnelRunning ? 'bg-success-dim' : 'bg-accent-dim'}`}>
+              <svg className={`w-4 h-4 ${tunnelRunning ? 'text-success' : 'text-accent'}`} viewBox="0 0 24 24" fill="currentColor">
+                <path d="M1 9l2 2c4.97-4.97 13.03-4.97 18 0l2-2C16.93 2.93 7.08 2.93 1 9zm8 8l3 3 3-3c-1.65-1.66-4.34-1.66-6 0zm-4-4l2 2c2.76-2.76 7.24-2.76 10 0l2-2C15.14 9.14 8.87 9.14 5 13z" />
+              </svg>
+            </div>
+            <span className="text-xs text-text-muted font-medium">Tunnel</span>
+          </div>
+          <div className="flex items-baseline justify-between gap-2">
+            <span className={`text-2xl font-bold tracking-tight ${tunnelRunning ? 'text-success' : 'text-accent'} truncate`}>
+              {tunnelStatusLabel}
+            </span>
+            <button
+              onClick={handleToggleTunnel}
+              disabled={tunnelLoading}
+              className={`px-3.5 py-1.5 rounded-lg font-semibold text-[12px] shrink-0 transition-all duration-150 ${
+                tunnelLoading ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'
+              } ${tunnelRunning
+                ? 'bg-danger-dim text-danger hover:bg-[rgba(239,68,68,0.25)]'
+                : 'bg-gradient-to-r from-accent to-[#D406B9] text-white hover:shadow-[0_0_16px_rgba(0,153,255,0.2)]'
+              }`}
+            >
+              {tunnelLoading ? '...' : tunnelRunning ? 'Stop' : 'Start'}
+            </button>
+          </div>
+          {serviceCount > 0 && (
+            <div className="text-[11px] text-text-muted mt-1">{serviceCount} service{serviceCount !== 1 ? 's' : ''}</div>
+          )}
+          {tunnelError && (
+            <div className="mt-2 text-[11px] text-danger">{tunnelError}</div>
+          )}
+        </div>
+
+        {/* File sharing toggle */}
+        <div
+          className={`min-w-0 bg-surface-2 rounded-xl p-4 border border-glass-border transition-all duration-200 ${
+            fileSharingEnabled ? 'shadow-[0_0_20px_rgba(245,158,11,0.06)]' : ''
+          }`}
+          style={{ animation: 'fadeIn 400ms cubic-bezier(0.16, 1, 0.3, 1) 190ms both' }}
+        >
+          <div className="flex items-center gap-3 mb-2.5">
+            <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${fileSharingEnabled ? 'bg-warning-dim' : 'bg-surface-3'}`}>
+              <svg className={`w-4 h-4 ${fileSharingEnabled ? 'text-warning' : 'text-text-muted'}`} viewBox="0 0 24 24" fill="currentColor">
+                <path d="M14 2H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V8l-6-6zm-1 2l5 5h-5V4zm-3 9v2H8v-2h2zm6 0v2h-4v-2h4zm-6 4v2H8v-2h2zm6 0v2h-4v-2h4z" />
+              </svg>
+            </div>
+            <span className="text-xs text-text-muted font-medium">File Sharing</span>
+          </div>
+          <div className="flex items-center justify-between">
+            <span className={`text-lg font-bold tracking-tight ${fileSharingEnabled ? 'text-warning' : 'text-text-muted'}`}>
+              {fileSharingEnabled ? 'Enabled' : 'Disabled'}
+            </span>
+            <button
+              onClick={() => handleToggleFileSharing(!fileSharingEnabled)}
+              disabled={togglingFileShare}
+              className={`relative w-10 h-[22px] rounded-full shrink-0 transition-colors duration-200 ${
+                togglingFileShare ? 'opacity-50' : 'cursor-pointer'
+              } ${fileSharingEnabled ? 'bg-warning' : 'bg-surface-4'}`}
+            >
+              <span className={`absolute top-[3px] w-4 h-4 rounded-full bg-white shadow-sm transition-[left] duration-200 ${
+                fileSharingEnabled ? 'left-[21px]' : 'left-[3px]'
+              }`} />
+            </button>
+          </div>
+          {fileSharingEnabled && fileSharePort && tunnelRunning && activeShareCount > 0 && (
+            <button
+              onClick={() => window.qurl.dialog.openExternal(`http://127.0.0.1:${fileSharePort}`)}
+              className="text-[11px] text-accent hover:underline cursor-pointer bg-transparent mt-1"
+            >
+              Browse shared files
+            </button>
+          )}
+        </div>
       </div>
 
       {/* ── Quick create section ── */}
@@ -623,10 +749,10 @@ export function Home({ navigateTo, isGuest }: HomeProps) {
           <div className="flex items-center justify-between mb-3">
             <div className="flex items-center gap-2">
               <div className="w-1 h-4 rounded-full bg-gradient-to-b from-[#0099FF] to-[#D406B9]" />
-              <h2 className="text-sm font-semibold text-text-secondary">Recent Resources</h2>
+              <h2 className="text-sm font-semibold text-text-secondary">Recent Qurls</h2>
             </div>
             <button
-              onClick={() => navigateTo('resources')}
+              onClick={() => navigateTo('qurls-files')}
               className="text-[11px] text-text-muted hover:text-accent transition-colors cursor-pointer bg-transparent"
             >
               View all {'\u2192'}
@@ -636,7 +762,7 @@ export function Home({ navigateTo, isGuest }: HomeProps) {
             {recentResources.map((r) => (
               <button
                 key={r.resource_id}
-                onClick={() => navigateTo('resources')}
+                onClick={() => navigateTo('qurls-files')}
                 className="bg-surface-2 rounded-xl px-4 py-3 border border-glass-border flex items-center gap-3 hover:border-glass-border-hover transition-colors cursor-pointer text-left w-full"
               >
                 <span className={`w-2 h-2 rounded-full shrink-0 ${r.status === 'active' ? 'bg-success shadow-[0_0_6px_var(--color-success)]' : r.status === 'revoked' ? 'bg-danger' : 'bg-text-muted'}`} />

@@ -1,0 +1,65 @@
+appId: com.layerv.qurl-desktop
+productName: QURL Desktop
+copyright: Copyright (c) LayerV AI
+
+directories:
+  buildResources: resources
+  output: release
+
+files:
+  - dist/**/*
+  - node_modules/**/*
+  - package.json
+
+extraResources:
+  - from: ../bin/
+    to: bin
+    filter:
+      - qurl-frpc
+      - qurl-frpc.exe
+      - sdk/**
+
+mac:
+  category: public.app-category.developer-tools
+  icon: resources/icon.icns
+  target:
+    - target: dmg
+      arch:
+        - arm64
+        - x64
+    - target: zip
+      arch:
+        - arm64
+        - x64
+  hardenedRuntime: true
+  gatekeeperAssess: false
+  entitlements: build/entitlements.mac.plist
+  entitlementsInherit: build/entitlements.mac.plist
+  notarize: true
+
+win:
+  icon: resources/icon.png
+  target:
+    - target: nsis
+      arch:
+        - x64
+
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+  perMachine: false
+
+linux:
+  icon: resources/icon.png
+  target:
+    - target: AppImage
+      arch:
+        - x64
+    - target: deb
+      arch:
+        - x64
+
+publish:
+  provider: github
+  owner: layervai
+  repo: qurl-reverse-proxy

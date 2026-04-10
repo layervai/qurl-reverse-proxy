@@ -18,7 +18,7 @@ export default defineConfig({
           build: {
             outDir: path.resolve(__dirname, 'dist/main'),
             rollupOptions: {
-              external: ['electron', '@layerv/qurl'],
+              external: ['electron', '@layerv/qurl', 'electron-updater'],
             },
           },
         },
