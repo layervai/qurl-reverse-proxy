@@ -323,10 +323,10 @@ export function Dashboard() {
           <button
             onClick={() => setShowAddForm(!showAddForm)}
             className={`
-              px-4 py-1.5 rounded-lg font-semibold text-xs transition-all duration-150 cursor-pointer
+              py-2 px-4 rounded-lg font-semibold text-[13px] transition-all duration-150 cursor-pointer shrink-0
               ${showAddForm
                 ? 'bg-surface-3 text-text-secondary hover:bg-surface-4'
-                : 'bg-gradient-to-r from-accent to-[#D406B9] text-white hover:shadow-[0_0_20px_rgba(0,153,255,0.25)]'
+                : 'bg-gradient-to-r from-[#0099FF] to-[#D406B9] text-white hover:shadow-[0_0_20px_rgba(0,153,255,0.25)]'
               }
             `}
           >

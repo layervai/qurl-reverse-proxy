@@ -32,6 +32,9 @@ const AI_CATEGORY_LABELS: Record<string, string> = {
   training_bots: 'Training bots',
 };
 
+// Shared label style for field alignment
+const LABEL_CLS = 'text-xs font-medium text-text-secondary mb-1 block';
+
 export function AccessPolicyForm({ value, onChange, compact = false, advancedOnly = false }: AccessPolicyFormProps) {
   const [showAdvanced, setShowAdvanced] = useState(false);
 
@@ -55,16 +58,17 @@ export function AccessPolicyForm({ value, onChange, compact = false, advancedOnl
   );
 
   return (
-    <div className={`flex flex-col ${compact ? 'gap-2' : 'gap-3'}`}>
+    <div className={`flex flex-col ${compact ? 'gap-2.5' : 'gap-3'}`}>
       {/* Simple tier: expiry, one-time, max sessions (hidden when advancedOnly) */}
       {!advancedOnly && (
-      <div className="flex gap-3 items-end flex-wrap">
+      <div className="grid grid-cols-[1fr_auto_1fr] gap-3">
         {/* Expiry */}
-        <div className={compact ? 'flex-[1_1_120px]' : 'flex-none'}>
-          <label className="text-xs font-medium text-text-secondary mb-1 block">Expiry</label>
+        <div>
+          <label className={LABEL_CLS}>Expiry</label>
           <select
             value={value.expires_in || '1h'}
             onChange={(e) => updateField('expires_in', e.target.value)}
+            className="w-full"
           >
             {EXPIRY_OPTIONS.map((opt) => (
               <option key={opt.value} value={opt.value}>
@@ -74,29 +78,43 @@ export function AccessPolicyForm({ value, onChange, compact = false, advancedOnl
           </select>
         </div>
 
-        {/* One-time-use toggle — standardized size */}
-        <div className="flex items-center gap-2 pb-0.5">
+        {/* One-time use */}
+        <div>
+          <label className={LABEL_CLS}>One-time use</label>
           <button
             type="button"
             onClick={() => updateField('one_time_use', !value.one_time_use)}
             className={`
-              relative w-10 h-[22px] rounded-full shrink-0 transition-colors duration-200
-              ${value.one_time_use ? 'bg-accent' : 'bg-surface-3'}
+              flex items-center gap-2.5 rounded-lg cursor-pointer transition-all duration-200 border
+              ${value.one_time_use
+                ? 'bg-accent-dim border-accent-border'
+                : 'bg-surface-1 border-glass-border hover:border-glass-border-hover'
+              }
             `}
+            style={{ padding: '10px 14px' }}
           >
             <span
               className={`
-                absolute top-[3px] w-4 h-4 rounded-full bg-white shadow-sm transition-[left] duration-200
-                ${value.one_time_use ? 'left-[21px]' : 'left-[3px]'}
+                relative w-8 h-[18px] rounded-full shrink-0 transition-colors duration-200
+                ${value.one_time_use ? 'bg-accent' : 'bg-surface-3'}
               `}
-            />
+            >
+              <span
+                className={`
+                  absolute top-[2px] w-[14px] h-[14px] rounded-full bg-white shadow-sm transition-[left] duration-200
+                  ${value.one_time_use ? 'left-[15px]' : 'left-[2px]'}
+                `}
+              />
+            </span>
+            <span className={`text-[13px] font-medium transition-colors duration-150 whitespace-nowrap ${value.one_time_use ? 'text-accent' : 'text-text-muted'}`}>
+              {value.one_time_use ? 'On' : 'Off'}
+            </span>
           </button>
-          <span className="text-xs text-text-secondary">One-time use</span>
         </div>
 
         {/* Max sessions */}
-        <div className={compact ? 'flex-[1_1_100px]' : 'flex-none'}>
-          <label className="text-xs font-medium text-text-secondary mb-1 block">Max sessions</label>
+        <div>
+          <label className={LABEL_CLS}>Max sessions</label>
           <input
             type="number"
             min={0}
@@ -106,35 +124,40 @@ export function AccessPolicyForm({ value, onChange, compact = false, advancedOnl
               const v = e.target.value ? parseInt(e.target.value, 10) : undefined;
               updateField('max_sessions', v);
             }}
-            className={compact ? 'w-full' : 'w-20'}
+            className="w-full"
+            style={{ fontSize: '13px', fontFamily: 'var(--font-sans)' }}
           />
         </div>
       </div>
       )}
 
-      {/* Advanced toggle */}
-      <button
-        type="button"
-        onClick={() => setShowAdvanced(!showAdvanced)}
-        className="self-start bg-transparent text-accent text-xs font-medium py-1 cursor-pointer flex items-center gap-1"
-      >
-        <span
-          className={`
-            inline-block text-[10px] transition-transform duration-150
-            ${showAdvanced ? 'rotate-90' : 'rotate-0'}
-          `}
+      {/* Advanced toggle (hidden when advancedOnly — parent controls visibility) */}
+      {!advancedOnly && (
+        <button
+          type="button"
+          onClick={() => setShowAdvanced(!showAdvanced)}
+          className="flex items-center gap-2.5 w-full py-1 cursor-pointer group bg-transparent"
         >
-          {'\u25B6'}
-        </span>
-        Advanced Settings
-      </button>
+          <svg
+            className={`w-3 h-3 text-text-muted transition-transform duration-200 ${showAdvanced ? 'rotate-90' : ''}`}
+            viewBox="0 0 24 24"
+            fill="currentColor"
+          >
+            <path d="M8.59 16.59L13.17 12 8.59 7.41 10 6l6 6-6 6-1.41-1.41z" />
+          </svg>
+          <span className="text-[11px] font-semibold text-text-muted uppercase tracking-wider group-hover:text-text-secondary transition-colors">
+            Advanced
+          </span>
+          <div className="flex-1 h-px bg-glass-border" />
+        </button>
+      )}
 
       {/* Advanced tier */}
-      {showAdvanced && (
-        <div className={`flex flex-col ${compact ? 'gap-2' : 'gap-3'} p-3 bg-surface-1 rounded-xl border border-glass-border`}>
+      {(advancedOnly || showAdvanced) && (
+        <div className={`flex flex-col ${compact ? 'gap-2.5' : 'gap-3'} p-3.5 bg-surface-1 rounded-xl border border-glass-border animate-in`}>
           {/* IP allowlist */}
           <div>
-            <label className="text-xs font-medium text-text-secondary mb-1 block">Restrict by IP address</label>
+            <label className={LABEL_CLS}>Restrict by IP address</label>
             <input
               value={(policy.ip_allowlist || []).join(', ')}
               onChange={(e) => {
@@ -152,7 +175,7 @@ export function AccessPolicyForm({ value, onChange, compact = false, advancedOnl
 
           {/* IP denylist */}
           <div>
-            <label className="text-xs font-medium text-text-secondary mb-1 block">Block IP addresses</label>
+            <label className={LABEL_CLS}>Block IP addresses</label>
             <input
               value={(policy.ip_denylist || []).join(', ')}
               onChange={(e) => {
@@ -168,45 +191,43 @@ export function AccessPolicyForm({ value, onChange, compact = false, advancedOnl
             <span className="text-[10px] text-text-muted mt-1 block">These IP ranges will be denied access</span>
           </div>
 
-          {/* Geo allowlist */}
-          <div>
-            <label className="text-xs font-medium text-text-secondary mb-1 block">Allow by country</label>
-            <input
-              value={(policy.geo_allowlist || []).join(', ')}
-              onChange={(e) => {
-                const list = e.target.value
-                  .split(',')
-                  .map((s) => s.trim())
-                  .filter(Boolean);
-                updatePolicy({ geo_allowlist: list.length > 0 ? list : undefined });
-              }}
-              placeholder="e.g., US, CA, GB"
-              className="w-full"
-            />
-            <span className="text-[10px] text-text-muted mt-1 block">Two-letter country codes, comma separated</span>
-          </div>
-
-          {/* Geo denylist */}
-          <div>
-            <label className="text-xs font-medium text-text-secondary mb-1 block">Block by country</label>
-            <input
-              value={(policy.geo_denylist || []).join(', ')}
-              onChange={(e) => {
-                const list = e.target.value
-                  .split(',')
-                  .map((s) => s.trim())
-                  .filter(Boolean);
-                updatePolicy({ geo_denylist: list.length > 0 ? list : undefined });
-              }}
-              placeholder="e.g., CN, RU"
-              className="w-full"
-            />
-            <span className="text-[10px] text-text-muted mt-1 block">Visitors from these countries will be denied</span>
+          {/* Geo row — side by side */}
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className={LABEL_CLS}>Allow by country</label>
+              <input
+                value={(policy.geo_allowlist || []).join(', ')}
+                onChange={(e) => {
+                  const list = e.target.value
+                    .split(',')
+                    .map((s) => s.trim())
+                    .filter(Boolean);
+                  updatePolicy({ geo_allowlist: list.length > 0 ? list : undefined });
+                }}
+                placeholder="e.g., US, CA, GB"
+                className="w-full"
+              />
+            </div>
+            <div>
+              <label className={LABEL_CLS}>Block by country</label>
+              <input
+                value={(policy.geo_denylist || []).join(', ')}
+                onChange={(e) => {
+                  const list = e.target.value
+                    .split(',')
+                    .map((s) => s.trim())
+                    .filter(Boolean);
+                  updatePolicy({ geo_denylist: list.length > 0 ? list : undefined });
+                }}
+                placeholder="e.g., CN, RU"
+                className="w-full"
+              />
+            </div>
           </div>
 
           {/* AI agent policy */}
           <div>
-            <label className="text-xs font-medium text-text-secondary mb-1 block">AI bot protection</label>
+            <label className={LABEL_CLS}>AI bot protection</label>
             <div className="flex items-center gap-2 mb-2">
               <button
                 type="button"
@@ -275,7 +296,7 @@ export function AccessPolicyForm({ value, onChange, compact = false, advancedOnl
 
           {/* Session duration */}
           <div>
-            <label className="text-xs font-medium text-text-secondary mb-1 block">Session duration</label>
+            <label className={LABEL_CLS}>Session duration</label>
             <select
               value={value.session_duration || ''}
               onChange={(e) => updateField('session_duration', e.target.value || undefined)}

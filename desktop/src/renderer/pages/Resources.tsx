@@ -1,5 +1,6 @@
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { AccessPolicyForm } from '../components/AccessPolicyForm';
+import { DropZone } from '../components/DropZone';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -36,7 +37,8 @@ function getTypeIndicator(targetUrl: string): TypeBadge {
     targetUrl.startsWith('file://') ||
     targetUrl.includes('/tmp/') ||
     targetUrl.includes('/uploads/') ||
-    targetUrl.includes('/shares/')
+    targetUrl.includes('/shares/') ||
+    /qurl-files\.qurl\.site/.test(targetUrl)
   ) {
     return { label: 'file', bgClass: 'bg-warning-dim', textClass: 'text-warning' };
   }
@@ -143,12 +145,48 @@ function getEffectiveStyle(state: EffectiveState): EffectiveStyle {
 // Filter types
 // ---------------------------------------------------------------------------
 
-type FilterTab = 'active' | 'all' | 'revoked';
+type FilterTab = 'active' | 'inactive' | 'revoked' | 'all';
 
-const FILTER_TABS: { id: FilterTab; label: string }[] = [
-  { id: 'active', label: 'Active' },
-  { id: 'all', label: 'All' },
-  { id: 'revoked', label: 'Revoked' },
+const FILTER_TABS: {
+  id: FilterTab;
+  label: string;
+  dotClass: string;
+  activeBadgeClass: string;
+  emptyTitle: string;
+  emptyHint: string;
+}[] = [
+  {
+    id: 'active',
+    label: 'Active',
+    dotClass: 'bg-success',
+    activeBadgeClass: 'bg-success-dim text-success',
+    emptyTitle: 'Nothing being shared right now',
+    emptyHint: 'Mint a new link on an inactive resource to start sharing.',
+  },
+  {
+    id: 'inactive',
+    label: 'Inactive',
+    dotClass: 'bg-warning',
+    activeBadgeClass: 'bg-warning-dim text-warning',
+    emptyTitle: 'No idle resources',
+    emptyHint: 'Resources appear here when all their access links expire or get revoked.',
+  },
+  {
+    id: 'revoked',
+    label: 'Revoked',
+    dotClass: 'bg-danger',
+    activeBadgeClass: 'bg-danger-dim text-danger',
+    emptyTitle: 'No revoked resources',
+    emptyHint: 'Revoked resources are permanently deactivated and cannot be restored.',
+  },
+  {
+    id: 'all',
+    label: 'All',
+    dotClass: '',
+    activeBadgeClass: 'bg-accent-dim text-accent',
+    emptyTitle: 'No resources found',
+    emptyHint: 'Create a resource above or share something from the Share page.',
+  },
 ];
 
 // ---------------------------------------------------------------------------
@@ -313,6 +351,74 @@ function Spinner({ size = 'sm' }: { size?: 'sm' | 'md' }) {
 }
 
 // ---------------------------------------------------------------------------
+// Filter dropdown (pill-styled, no native select)
+// ---------------------------------------------------------------------------
+
+function FilterDropdown({
+  value,
+  onChange,
+  options,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  options: { value: string; label: string }[];
+}) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+  const selected = options.find((o) => o.value === value);
+  const isFiltered = value !== options[0]?.value;
+
+  useEffect(() => {
+    if (!open) return;
+    const handleClick = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener('mousedown', handleClick);
+    return () => document.removeEventListener('mousedown', handleClick);
+  }, [open]);
+
+  return (
+    <div className="relative" ref={ref}>
+      <button
+        onClick={() => setOpen(!open)}
+        className={[
+          'flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11px] font-medium transition-all duration-150 cursor-pointer whitespace-nowrap',
+          isFiltered
+            ? 'bg-surface-0 text-accent shadow-sm'
+            : 'text-text-muted hover:text-text-secondary',
+        ].join(' ')}
+      >
+        {selected?.label}
+        <svg
+          className={`w-3 h-3 transition-transform duration-150 ${open ? 'rotate-180' : ''} ${isFiltered ? 'text-accent' : 'text-text-muted'}`}
+          viewBox="0 0 24 24"
+          fill="currentColor"
+        >
+          <path d="M7.41 8.59L12 13.17l4.59-4.58L18 10l-6 6-6-6 1.41-1.41z" />
+        </svg>
+      </button>
+      {open && (
+        <div className="absolute top-full left-0 mt-1.5 bg-surface-1 border border-glass-border rounded-lg shadow-lg py-1 min-w-[120px] z-50 animate-in">
+          {options.map((opt) => (
+            <button
+              key={opt.value}
+              onClick={() => { onChange(opt.value); setOpen(false); }}
+              className={`w-full text-left px-3 py-1.5 text-[11px] font-medium cursor-pointer transition-colors ${
+                opt.value === value
+                  ? 'text-accent bg-accent-dim'
+                  : 'text-text-secondary hover:bg-surface-hover hover:text-text-primary'
+              }`}
+            >
+              {opt.label}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Resources page
 // ---------------------------------------------------------------------------
 
@@ -324,6 +430,8 @@ export function Resources() {
 
   // --- Filter ---
   const [filter, setFilter] = useState<FilterTab>('active');
+  const [typeFilter, setTypeFilter] = useState<string>('all');
+  const [dateRange, setDateRange] = useState<string>('all');
 
   // --- Create form ---
   const [showCreate, setShowCreate] = useState(false);
@@ -332,6 +440,8 @@ export function Resources() {
     expires_in: '24h',
   });
   const [creating, setCreating] = useState(false);
+  const [pendingFile, setPendingFile] = useState<{ path: string; name: string } | null>(null);
+  const [qurlDefaults, setQurlDefaults] = useState<QURLDefaults | null>(null);
 
   // --- Expanded card ---
   const [expandedId, setExpandedId] = useState<string | null>(null);
@@ -398,6 +508,7 @@ export function Resources() {
 
   useEffect(() => {
     fetchResources();
+    window.qurl.settings.getDefaults().then(setQurlDefaults).catch(() => {});
     const interval = setInterval(fetchResources, 30000);
     return () => clearInterval(interval);
   }, [fetchResources]);
@@ -435,20 +546,67 @@ export function Resources() {
   // ---------------------------------------------------------------------------
 
   const counts = useMemo(() => {
-    let active = 0;
-    let revoked = 0;
-    for (const r of resources) {
-      if (r.status === 'active') active++;
-      else if (r.status === 'revoked') revoked++;
+    let pool = resources;
+    if (typeFilter !== 'all') {
+      pool = pool.filter((r) => getTypeIndicator(r.target_url).label === typeFilter);
     }
-    return { active, revoked, all: resources.length };
-  }, [resources]);
+    if (dateRange !== 'all') {
+      const now = Date.now();
+      const cutoff =
+        dateRange === 'today' ? now - 24 * 60 * 60 * 1000
+        : dateRange === '7d' ? now - 7 * 24 * 60 * 60 * 1000
+        : now - 30 * 24 * 60 * 60 * 1000;
+      pool = pool.filter((r) => new Date(r.created_at).getTime() >= cutoff);
+    }
+    let active = 0;
+    let inactive = 0;
+    let revoked = 0;
+    for (const r of pool) {
+      if (r.status === 'revoked') {
+        revoked++;
+      } else {
+        const detail = resourceDetails[r.resource_id];
+        const state = getEffectiveState(r, detail);
+        if (state === 'sharing') active++;
+        else inactive++;
+      }
+    }
+    return { active, inactive, revoked, all: pool.length };
+  }, [resources, resourceDetails, typeFilter, dateRange]);
 
   const filteredResources = useMemo(() => {
-    if (filter === 'active') return resources.filter((r) => r.status === 'active');
-    if (filter === 'revoked') return resources.filter((r) => r.status === 'revoked');
-    return resources;
-  }, [resources, filter]);
+    let result: QURLInfo[];
+    if (filter === 'active') {
+      result = resources.filter((r) => {
+        if (r.status === 'revoked') return false;
+        const detail = resourceDetails[r.resource_id];
+        return getEffectiveState(r, detail) === 'sharing';
+      });
+    } else if (filter === 'inactive') {
+      result = resources.filter((r) => {
+        if (r.status === 'revoked') return false;
+        const detail = resourceDetails[r.resource_id];
+        const state = getEffectiveState(r, detail);
+        return state === 'dormant' || state === 'expired';
+      });
+    } else if (filter === 'revoked') {
+      result = resources.filter((r) => r.status === 'revoked');
+    } else {
+      result = [...resources];
+    }
+    if (typeFilter !== 'all') {
+      result = result.filter((r) => getTypeIndicator(r.target_url).label === typeFilter);
+    }
+    if (dateRange !== 'all') {
+      const now = Date.now();
+      const cutoff =
+        dateRange === 'today' ? now - 24 * 60 * 60 * 1000
+        : dateRange === '7d' ? now - 7 * 24 * 60 * 60 * 1000
+        : now - 30 * 24 * 60 * 60 * 1000;
+      result = result.filter((r) => new Date(r.created_at).getTime() >= cutoff);
+    }
+    return result;
+  }, [resources, filter, resourceDetails, typeFilter, dateRange]);
 
   // ---------------------------------------------------------------------------
   // Handlers
@@ -471,20 +629,32 @@ export function Resources() {
   );
 
   const handleCreate = useCallback(async () => {
-    if (!createInput.target_url) return;
+    if (!createInput.target_url && !pendingFile) return;
     setCreating(true);
     setError(null);
     try {
-      let targetUrl = createInput.target_url.trim();
-      if (!targetUrl.startsWith('http://') && !targetUrl.startsWith('https://')) {
-        if (targetUrl.includes('.') && !targetUrl.includes(' ')) {
-          targetUrl = 'https://' + targetUrl;
+      let result: QURLCreateResult;
+      if (pendingFile) {
+        const opts: Partial<QURLCreateInput> = {};
+        if (createInput.expires_in) opts.expires_in = createInput.expires_in;
+        if (createInput.one_time_use) opts.one_time_use = createInput.one_time_use;
+        if (createInput.max_sessions) opts.max_sessions = createInput.max_sessions;
+        if (createInput.session_duration) opts.session_duration = createInput.session_duration;
+        if (createInput.label) opts.label = createInput.label;
+        if (createInput.access_policy) opts.access_policy = createInput.access_policy;
+        result = await window.qurl.share.file(pendingFile.path, pendingFile.name, opts);
+      } else {
+        let targetUrl = createInput.target_url!.trim();
+        if (!targetUrl.startsWith('http://') && !targetUrl.startsWith('https://')) {
+          if (targetUrl.includes('.') && !targetUrl.includes(' ')) {
+            targetUrl = 'https://' + targetUrl;
+          }
         }
+        result = await window.qurl.qurls.create({
+          ...createInput,
+          target_url: targetUrl,
+        } as QURLCreateInput);
       }
-      const result = await window.qurl.qurls.create({
-        ...createInput,
-        target_url: targetUrl,
-      } as QURLCreateInput);
       if (!result.success) {
         setError(result.error || 'Failed to create resource');
         return;
@@ -494,13 +664,38 @@ export function Resources() {
       }
       setShowCreate(false);
       setCreateInput({ target_url: '', expires_in: '24h' });
+      setPendingFile(null);
       await fetchResources();
     } catch (err) {
       setError(String(err));
     } finally {
       setCreating(false);
     }
-  }, [createInput, fetchResources]);
+  }, [createInput, pendingFile, fetchResources]);
+
+  const handleFileDrop = useCallback(
+    (files: File[]) => {
+      const file = files[0];
+      if (!file) return;
+      const filePath = (file as File & { path?: string }).path;
+      if (!filePath) {
+        setError('Could not determine file path');
+        return;
+      }
+      setPendingFile({ path: filePath, name: file.name });
+      const d = qurlDefaults?.file;
+      setCreateInput((p) => ({
+        target_url: '',
+        expires_in: d?.expires_in || '1h',
+        one_time_use: d?.one_time_use ?? true,
+        max_sessions: d?.max_sessions,
+        session_duration: d?.session_duration,
+        access_policy: d?.access_policy || p.access_policy,
+        label: p.label || file.name,
+      }));
+    },
+    [qurlDefaults],
+  );
 
   const handleRevokeResource = useCallback(
     (resourceId: string, label: string) => {
@@ -612,14 +807,6 @@ export function Resources() {
     [mintInput, fetchResourceDetail],
   );
 
-  // General copy state for QURL site URLs
-  const [copiedQurlId, setCopiedQurlId] = useState<string | null>(null);
-  const handleCopyQurlSite = useCallback(async (qurlId: string, url: string) => {
-    await navigator.clipboard.writeText(url);
-    setCopiedQurlId(qurlId);
-    setTimeout(() => setCopiedQurlId(null), 2000);
-  }, []);
-
   const handleConfirm = useCallback(async () => {
     if (!confirmAction) return;
     await confirmAction.action();
@@ -655,8 +842,22 @@ export function Resources() {
           </p>
           <button
             onClick={() => {
+              if (!showCreate && qurlDefaults) {
+                const d = qurlDefaults.url;
+                setCreateInput({
+                  target_url: '',
+                  expires_in: d.expires_in || '24h',
+                  one_time_use: d.one_time_use || false,
+                  max_sessions: d.max_sessions,
+                  session_duration: d.session_duration,
+                  access_policy: d.access_policy,
+                });
+              } else if (!showCreate) {
+                setCreateInput({ target_url: '', expires_in: '24h' });
+              }
               setShowCreate(!showCreate);
               setError(null);
+              if (showCreate) setPendingFile(null);
             }}
             className={`py-2 px-4 rounded-lg font-semibold text-[13px] transition-all duration-150 cursor-pointer shrink-0 ${
               showCreate
@@ -701,21 +902,67 @@ export function Resources() {
       {/* Create form                                                        */}
       {/* ================================================================== */}
       {showCreate && (
-        <div className="bg-surface-2 rounded-xl p-5 border border-glass-border flex flex-col gap-3.5 animate-in">
+        <div className="bg-surface-2 rounded-xl p-5 border border-glass-border flex flex-col gap-3 animate-in">
           <h2 className="text-[13px] font-semibold text-text-primary">Create Protected Resource</h2>
-          <div>
-            <label className="text-xs font-medium text-text-secondary mb-1 block">Target URL</label>
-            <input
-              value={createInput.target_url || ''}
-              onChange={(e) => setCreateInput((p) => ({ ...p, target_url: e.target.value }))}
-              placeholder="https://example.com or example.com"
-              className="w-full py-2.5 px-3.5 bg-surface-1 border border-glass-border rounded-lg text-text-primary text-[13px] font-mono placeholder:text-text-muted focus:border-accent focus:outline-none focus:ring-[3px] focus:ring-accent-dim"
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') handleCreate();
-              }}
-              autoFocus
-            />
-          </div>
+
+          {/* Source: URL or File */}
+          {pendingFile ? (
+            /* ── Selected file chip ── */
+            <div className="flex items-center gap-3 bg-surface-1 border border-glass-border rounded-lg px-3.5 py-2.5">
+              <svg className="w-4 h-4 text-warning shrink-0" viewBox="0 0 24 24" fill="currentColor">
+                <path d="M14 2H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V8l-6-6zm-1 2l5 5h-5V4zm-3 9v2H8v-2h2zm6 0v2h-4v-2h4zm-6 4v2H8v-2h2zm6 0v2h-4v-2h4z" />
+              </svg>
+              <span className="flex-1 text-[13px] text-text-primary font-medium truncate">
+                {pendingFile.name}
+              </span>
+              <button
+                onClick={() => {
+                  setPendingFile(null);
+                  const d = qurlDefaults?.url;
+                  setCreateInput({
+                    target_url: '',
+                    expires_in: d?.expires_in || '24h',
+                    one_time_use: d?.one_time_use || false,
+                    max_sessions: d?.max_sessions,
+                    session_duration: d?.session_duration,
+                    access_policy: d?.access_policy,
+                  });
+                }}
+                className="text-text-muted hover:text-text-secondary text-sm bg-transparent cursor-pointer shrink-0 transition-colors"
+              >
+                {'\u2715'}
+              </button>
+            </div>
+          ) : (
+            <>
+              {/* ── URL input ── */}
+              <div>
+                <label className="text-xs font-medium text-text-secondary mb-1 block">Target URL</label>
+                <input
+                  value={createInput.target_url || ''}
+                  onChange={(e) => setCreateInput((p) => ({ ...p, target_url: e.target.value }))}
+                  placeholder="https://example.com or example.com"
+                  className="w-full py-2.5 px-3.5 bg-surface-1 border border-glass-border rounded-lg text-text-primary text-[13px] font-mono placeholder:text-text-muted focus:border-accent focus:outline-none focus:ring-[3px] focus:ring-accent-dim"
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') handleCreate();
+                  }}
+                  autoFocus
+                />
+              </div>
+
+              {/* ── Divider ── */}
+              <div className="flex items-center gap-3 -my-0.5">
+                <div className="flex-1 h-px bg-glass-border" />
+                <span className="text-[10px] text-text-muted uppercase tracking-widest font-medium">or</span>
+                <div className="flex-1 h-px bg-glass-border" />
+              </div>
+
+              {/* ── File drop zone ── */}
+              <DropZone onDrop={handleFileDrop} disabled={creating} compact />
+            </>
+          )}
+
+          {/* Label */}
           <div>
             <label className="text-xs font-medium text-text-secondary mb-1 block">
               Label <span className="text-text-muted font-normal">(optional)</span>
@@ -733,9 +980,9 @@ export function Resources() {
           <div className="flex justify-end pt-1">
             <button
               onClick={handleCreate}
-              disabled={creating || !createInput.target_url}
+              disabled={creating || (!createInput.target_url && !pendingFile)}
               className={`bg-gradient-to-r from-[#0099FF] to-[#D406B9] text-white py-2 px-6 rounded-lg font-semibold text-[13px] transition-all duration-150 ${
-                creating || !createInput.target_url
+                creating || (!createInput.target_url && !pendingFile)
                   ? 'opacity-40 cursor-not-allowed'
                   : 'opacity-100 cursor-pointer hover:shadow-[0_0_20px_rgba(0,153,255,0.25)]'
               }`}
@@ -757,7 +1004,8 @@ export function Resources() {
       {/* Filter tabs                                                        */}
       {/* ================================================================== */}
       {!loading && resources.length > 0 && (
-        <div className="flex gap-0.5 bg-surface-2 rounded-lg p-1 w-fit border border-glass-border">
+        <div className="flex gap-0.5 bg-surface-2 rounded-lg p-1 border border-glass-border flex-wrap w-fit">
+          {/* Status tabs */}
           {FILTER_TABS.map((tab) => {
             const count = counts[tab.id];
             const isActive = filter === tab.id;
@@ -766,18 +1014,23 @@ export function Resources() {
                 key={tab.id}
                 onClick={() => setFilter(tab.id)}
                 className={[
-                  'flex items-center gap-1.5 px-3.5 py-1.5 rounded-md text-[13px] font-medium transition-all duration-150 cursor-pointer',
+                  'flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11px] font-medium transition-all duration-150 cursor-pointer whitespace-nowrap',
                   isActive
                     ? 'bg-surface-0 text-text-primary shadow-sm'
                     : 'text-text-muted hover:text-text-secondary',
                 ].join(' ')}
               >
+                {tab.dotClass && (
+                  <span
+                    className={`w-1.5 h-1.5 rounded-full shrink-0 transition-opacity duration-150 ${tab.dotClass} ${
+                      isActive ? '' : 'opacity-40'
+                    }`}
+                  />
+                )}
                 {tab.label}
                 <span
-                  className={`text-[11px] font-semibold min-w-[20px] text-center rounded-full px-1.5 py-px ${
-                    isActive
-                      ? 'bg-accent-dim text-accent'
-                      : 'bg-surface-3 text-text-muted'
+                  className={`text-[10px] font-semibold min-w-[18px] text-center rounded-full px-1 py-px transition-colors duration-150 ${
+                    isActive ? tab.activeBadgeClass : 'bg-surface-3 text-text-muted'
                   }`}
                 >
                   {count}
@@ -785,6 +1038,44 @@ export function Resources() {
               </button>
             );
           })}
+
+          {/* Separator */}
+          <div className="w-px h-5 bg-glass-border mx-0.5 self-center shrink-0" />
+
+          {/* Type filter */}
+          <FilterDropdown
+            value={typeFilter}
+            onChange={setTypeFilter}
+            options={[
+              { value: 'all', label: 'All types' },
+              { value: 'file', label: 'File' },
+              { value: 'tunneled', label: 'Tunneled' },
+              { value: 'private', label: 'Private' },
+              { value: 'public', label: 'Public' },
+            ]}
+          />
+
+          {/* Date range */}
+          <FilterDropdown
+            value={dateRange}
+            onChange={setDateRange}
+            options={[
+              { value: 'all', label: 'All time' },
+              { value: 'today', label: 'Today' },
+              { value: '7d', label: 'Last 7 days' },
+              { value: '30d', label: 'Last 30 days' },
+            ]}
+          />
+
+          {/* Clear */}
+          {(typeFilter !== 'all' || dateRange !== 'all') && (
+            <button
+              onClick={() => { setTypeFilter('all'); setDateRange('all'); }}
+              className="flex items-center px-1.5 py-1 rounded-md text-[11px] text-text-muted hover:text-danger bg-transparent cursor-pointer transition-colors"
+            >
+              {'\u2715'}
+            </button>
+          )}
         </div>
       )}
 
@@ -811,9 +1102,24 @@ export function Resources() {
           </p>
         </div>
       ) : filteredResources.length === 0 ? (
-        <div className="text-center py-10 text-text-muted text-[13px] bg-surface-2 rounded-xl border border-glass-border">
-          No {filter === 'active' ? 'active' : filter === 'revoked' ? 'revoked' : ''} resources found.
-        </div>
+        (() => {
+          const tab = FILTER_TABS.find((t) => t.id === filter)!;
+          return (
+            <div className="text-center py-10 bg-surface-2 rounded-xl border border-glass-border">
+              {tab.dotClass && (
+                <span
+                  className={`inline-block w-2.5 h-2.5 rounded-full mb-2.5 opacity-30 ${tab.dotClass}`}
+                />
+              )}
+              <p className="text-text-secondary text-[13px] font-medium mb-1">
+                {tab.emptyTitle}
+              </p>
+              <p className="text-text-muted text-[12px] max-w-[280px] mx-auto leading-relaxed">
+                {tab.emptyHint}
+              </p>
+            </div>
+          );
+        })()
       ) : (
         <div className="flex flex-col gap-2">
           {filteredResources.map((q, idx) => {
@@ -876,11 +1182,6 @@ export function Resources() {
                     className={`text-[10px] px-2 py-0.5 rounded-full uppercase font-bold tracking-wide shrink-0 ${typeInfo.bgClass} ${typeInfo.textClass}`}
                   >
                     {typeInfo.label}
-                  </span>
-
-                  {/* Effective status label */}
-                  <span className={`text-[11px] font-semibold shrink-0 ${eStyle.textClass}`}>
-                    {eStyle.label}
                   </span>
 
                   {/* Chevron */}
@@ -954,8 +1255,14 @@ export function Resources() {
                           {q.status === 'active' && !isMintOpen && (
                             <button
                               onClick={() => {
+                                const d = resourceDetails[q.resource_id];
+                                const firstQurlLabel = d?.qurls[0]?.label;
+                                const urlFilename = decodeURIComponent(q.target_url.split('/').pop() || '');
+                                const base = q.label || firstQurlLabel || urlFilename || 'Link';
+                                const count = d ? d.qurls.length : 0;
+                                const label = count > 0 ? `${base} (${count + 1})` : base;
                                 setMintingFor(q.resource_id);
-                                setMintInput({ expires_in: '1h' });
+                                setMintInput({ expires_in: '1h', label });
                                 setShowMintAdvanced(false);
                               }}
                               className="text-accent text-[11px] font-semibold bg-transparent cursor-pointer hover:underline flex items-center gap-1"
@@ -1022,29 +1329,10 @@ export function Resources() {
                                         </>
                                       )}
                                     </div>
-                                    {/* QURL Site URL */}
-                                    {token.qurl_site && (
-                                      <span className="text-[10px] text-text-muted font-mono truncate max-w-[260px] block">
-                                        {token.qurl_site}
-                                      </span>
-                                    )}
                                   </div>
 
-                                  {/* Copy site URL + Revoke */}
+                                  {/* Revoke */}
                                   <div className="flex items-center gap-1.5 shrink-0">
-                                    {token.qurl_site && (
-                                      <button
-                                        onClick={() => handleCopyQurlSite(token.qurl_id, token.qurl_site!)}
-                                        title={token.qurl_site}
-                                        className={`text-[11px] font-medium px-2.5 py-1 rounded-lg transition-all duration-150 cursor-pointer shrink-0 ${
-                                          copiedQurlId === token.qurl_id
-                                            ? 'bg-success text-white'
-                                            : 'bg-surface-3 text-text-secondary hover:bg-surface-4'
-                                        }`}
-                                      >
-                                        {copiedQurlId === token.qurl_id ? 'Copied!' : 'Copy Site URL'}
-                                      </button>
-                                    )}
                                     {token.status === 'active' && (
                                       <button
                                         onClick={() =>
@@ -1074,6 +1362,24 @@ export function Resources() {
                         <h4 className="text-[13px] font-semibold text-text-primary">
                           Mint New Access Link
                         </h4>
+
+                        {/* Label (basic field) */}
+                        <div>
+                          <label className="text-[11px] font-medium text-text-muted mb-1 block">
+                            Label <span className="font-normal">(Optional)</span>
+                          </label>
+                          <input
+                            value={mintInput.label || ''}
+                            onChange={(e) =>
+                              setMintInput((p) => ({
+                                ...p,
+                                label: e.target.value || undefined,
+                              }))
+                            }
+                            placeholder="e.g. Alice from Acme"
+                            className="w-full py-1.5 px-3 bg-surface-2 border border-glass-border rounded-md text-[12px] text-text-primary placeholder:text-text-muted focus:border-accent focus:outline-none"
+                          />
+                        </div>
 
                         {/* Basic options */}
                         <div className="flex items-center gap-4 flex-wrap">
@@ -1125,60 +1431,21 @@ export function Resources() {
                           <div className="flex flex-col gap-2.5 pt-1 border-t border-glass-border mt-1 animate-in">
                             <div>
                               <label className="text-[11px] font-medium text-text-muted mb-1 block">
-                                Label
+                                Max sessions
                               </label>
                               <input
-                                value={mintInput.label || ''}
+                                type="number"
+                                min="0"
+                                value={mintInput.max_sessions || ''}
                                 onChange={(e) =>
                                   setMintInput((p) => ({
                                     ...p,
-                                    label: e.target.value || undefined,
+                                    max_sessions: parseInt(e.target.value) || undefined,
                                   }))
                                 }
-                                placeholder="e.g. Alice from Acme"
+                                placeholder="Unlimited"
                                 className="w-full py-1.5 px-3 bg-surface-2 border border-glass-border rounded-md text-[12px] text-text-primary placeholder:text-text-muted focus:border-accent focus:outline-none"
                               />
-                            </div>
-                            <div className="flex gap-3">
-                              <div className="flex-1">
-                                <label className="text-[11px] font-medium text-text-muted mb-1 block">
-                                  Max sessions
-                                </label>
-                                <input
-                                  type="number"
-                                  min="0"
-                                  value={mintInput.max_sessions || ''}
-                                  onChange={(e) =>
-                                    setMintInput((p) => ({
-                                      ...p,
-                                      max_sessions: parseInt(e.target.value) || undefined,
-                                    }))
-                                  }
-                                  placeholder="Unlimited"
-                                  className="w-full py-1.5 px-3 bg-surface-2 border border-glass-border rounded-md text-[12px] text-text-primary placeholder:text-text-muted focus:border-accent focus:outline-none"
-                                />
-                              </div>
-                              <div className="flex-1">
-                                <label className="text-[11px] font-medium text-text-muted mb-1 block">
-                                  Session duration
-                                </label>
-                                <select
-                                  value={mintInput.session_duration || ''}
-                                  onChange={(e) =>
-                                    setMintInput((p) => ({
-                                      ...p,
-                                      session_duration: e.target.value || undefined,
-                                    }))
-                                  }
-                                  className="w-full py-1.5 px-3 bg-surface-2 border border-glass-border rounded-md text-[12px] text-text-primary focus:border-accent focus:outline-none"
-                                >
-                                  <option value="">Default</option>
-                                  <option value="15m">15 min</option>
-                                  <option value="1h">1 hour</option>
-                                  <option value="6h">6 hours</option>
-                                  <option value="24h">24 hours</option>
-                                </select>
-                              </div>
                             </div>
                             <AccessPolicyForm
                               value={mintInput}

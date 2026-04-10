@@ -3,9 +3,10 @@ import { useState, useCallback, useRef, type DragEvent } from 'react';
 interface DropZoneProps {
   onDrop: (files: File[]) => void;
   disabled?: boolean;
+  compact?: boolean;
 }
 
-export function DropZone({ onDrop, disabled = false }: DropZoneProps) {
+export function DropZone({ onDrop, disabled = false, compact = false }: DropZoneProps) {
   const [isDragging, setIsDragging] = useState(false);
   const dragCounter = useRef(0);
 
@@ -81,9 +82,10 @@ export function DropZone({ onDrop, disabled = false }: DropZoneProps) {
       onDrop={handleDrop}
       onClick={handleBrowse}
       className={`
-        border-2 border-dashed rounded-xl px-6 py-8 text-center
-        transition-all duration-300 min-h-[130px]
-        flex flex-col items-center justify-center gap-2
+        border-2 border-dashed rounded-xl text-center
+        transition-all duration-300
+        flex items-center justify-center
+        ${compact ? 'px-4 py-3 gap-2' : 'px-6 py-8 min-h-[130px] flex-col gap-2'}
         ${disabled ? 'cursor-not-allowed opacity-50' : 'cursor-pointer'}
         ${isDragging
           ? 'border-accent bg-accent-dim scale-[1.005]'
@@ -91,41 +93,47 @@ export function DropZone({ onDrop, disabled = false }: DropZoneProps) {
         }
       `}
     >
-      <div className="flex items-center gap-3">
-        <svg
-          className={`w-8 h-8 transition-colors duration-200 ${isDragging ? 'text-accent' : 'text-text-muted'}`}
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="1.5"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        >
-          {isDragging ? (
-            <>
-              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-              <polyline points="7 10 12 15 17 10" />
-              <line x1="12" y1="15" x2="12" y2="3" />
-            </>
-          ) : (
-            <>
-              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-              <polyline points="17 8 12 3 7 8" />
-              <line x1="12" y1="3" x2="12" y2="15" />
-            </>
-          )}
-        </svg>
-        <div className="text-left">
-          <div
-            className={`text-sm font-semibold transition-colors duration-200 ${isDragging ? 'text-accent' : 'text-text-primary'}`}
-          >
-            {isDragging ? 'Release to share' : 'Drop files here'}
-          </div>
-          <div className="text-[12px] text-text-muted">
-            or click to browse
+      <svg
+        className={`${compact ? 'w-5 h-5' : 'w-8 h-8'} shrink-0 transition-colors duration-200 ${isDragging ? 'text-accent' : 'text-text-muted'}`}
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      >
+        {isDragging ? (
+          <>
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+            <polyline points="7 10 12 15 17 10" />
+            <line x1="12" y1="15" x2="12" y2="3" />
+          </>
+        ) : (
+          <>
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+            <polyline points="17 8 12 3 7 8" />
+            <line x1="12" y1="3" x2="12" y2="15" />
+          </>
+        )}
+      </svg>
+      {compact ? (
+        <span className={`text-[12px] font-medium transition-colors duration-200 ${isDragging ? 'text-accent' : 'text-text-muted'}`}>
+          {isDragging ? 'Release to share' : 'Drop files here or click to browse'}
+        </span>
+      ) : (
+        <div className="flex items-center gap-3">
+          <div className="text-left">
+            <div
+              className={`text-sm font-semibold transition-colors duration-200 ${isDragging ? 'text-accent' : 'text-text-primary'}`}
+            >
+              {isDragging ? 'Release to share' : 'Drop files here'}
+            </div>
+            <div className="text-[12px] text-text-muted">
+              or click to browse
+            </div>
           </div>
         </div>
-      </div>
+      )}
     </div>
   );
 }
