@@ -16,3 +16,6 @@ webServer.user = "opennhp-frp"
 webServer.password = "opennhp-frp"
 
 subDomainHost = "opennhp.online"
+
+# Branded 404 page for expired/revoked/missing QURL links
+custom404Page = "/etc/frps/404.html"

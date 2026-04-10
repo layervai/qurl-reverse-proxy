@@ -1,0 +1,210 @@
+# Release pipeline for qurl-reverse-proxy (nhp-frp)
+# Builds server + client binaries for Linux and macOS when a version tag is pushed.
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+
+permissions:
+  contents: write
+
+# Shared build-time version flags
+env:
+  VERSION_PKG: github.com/layervai/qurl-reverse-proxy/pkg/version
+
+jobs:
+  # ──────────────────────────────────────────────
+  # Build release binaries on each platform
+  # ──────────────────────────────────────────────
+  build-release:
+    name: Build (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            goos: linux
+            goarch: amd64
+            sdk_lib: nhp-agent.so
+          - os: macos-latest
+            goos: darwin
+            goarch: arm64
+            sdk_lib: nhp-agent.dylib
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.25"
+
+      - name: Set build metadata
+        id: meta
+        run: |
+          echo "build_date=$(date -u '+%Y-%m-%d %H:%M:%S')" >> "$GITHUB_OUTPUT"
+
+      # Server binary -- pure Go, no CGO needed
+      - name: Build qurl-frps (server)
+        env:
+          CGO_ENABLED: "0"
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+        run: |
+          go build -trimpath \
+            -ldflags "-s -w \
+              -X '${VERSION_PKG}.Version=${{ github.ref_name }}' \
+              -X '${VERSION_PKG}.GitCommit=${{ github.sha }}' \
+              -X '${VERSION_PKG}.BuildDate=${{ steps.meta.outputs.build_date }}'" \
+            -tags frps \
+            -o qurl-frps ./cmd/frps
+
+      # Build the OpenNHP C-shared SDK from the git submodule
+      - name: Build NHP SDK
+        run: make build-sdk
+
+      # Client binary -- requires CGO for NHP SDK linkage
+      - name: Build qurl-frpc (client)
+        env:
+          CGO_ENABLED: "1"
+        run: |
+          go build -trimpath \
+            -ldflags "-s -w \
+              -X '${VERSION_PKG}.Version=${{ github.ref_name }}' \
+              -X '${VERSION_PKG}.GitCommit=${{ github.sha }}' \
+              -X '${VERSION_PKG}.BuildDate=${{ steps.meta.outputs.build_date }}'" \
+            -o qurl-frpc ./cmd/frpc
+
+      # On macOS the dynamic library path needs to be rewritten so the
+      # binary finds the SDK relative to its own location.
+      - name: Fix dylib path (macOS only)
+        if: matrix.goos == 'darwin'
+        run: install_name_tool -change nhp-agent.dylib ./bin/sdk/nhp-agent.dylib ./qurl-frpc
+
+      # Package everything into a release tarball
+      - name: Package release tarball
+        run: |
+          ARCHIVE="qurl-reverse-proxy-${{ github.ref_name }}-${{ matrix.goos }}-${{ matrix.goarch }}.tar.gz"
+          mkdir -p release/sdk
+          cp qurl-frps release/
+          cp qurl-frpc release/
+          cp -r bin/sdk/${{ matrix.sdk_lib }} release/sdk/ 2>/dev/null || true
+          cp -r bin/sdk/*.h release/sdk/ 2>/dev/null || true
+          cp -r bin/etc release/
+          cp LICENSE release/
+          tar -czf "${ARCHIVE}" -C release .
+          echo "ARCHIVE=${ARCHIVE}" >> "$GITHUB_ENV"
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: ${{ env.ARCHIVE }}
+
+  # ──────────────────────────────────────────────
+  # Create the GitHub Release and attach tarballs
+  # ──────────────────────────────────────────────
+  create-release:
+    name: Create Release
+    needs: build-release
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Download all build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          files: |
+            artifacts/*.tar.gz
+            scripts/install.sh
+
+  # ──────────────────────────────────────────────
+  # Build desktop app installers with electron-builder
+  # ──────────────────────────────────────────────
+  build-desktop:
+    name: Desktop (${{ matrix.platform }})
+    needs: create-release
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        include:
+          - os: macos-latest
+            platform: mac
+            artifact: release-darwin-arm64
+          - os: ubuntu-latest
+            platform: linux
+            artifact: release-linux-amd64
+          # - os: windows-latest
+          #   platform: win
+          #   artifact: release-windows-amd64
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: desktop/package-lock.json
+
+      # Download the sidecar binary from the Go build artifacts
+      - name: Download sidecar binary
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: sidecar-artifact
+
+      - name: Extract sidecar binary
+        run: |
+          mkdir -p bin/sdk
+          tar xzf sidecar-artifact/*.tar.gz -C bin/ ./qurl-frpc || tar xzf sidecar-artifact/*.tar.gz -C bin/ qurl-frpc
+          tar xzf sidecar-artifact/*.tar.gz -C bin/ --include='./sdk/*' 2>/dev/null || true
+          chmod +x bin/qurl-frpc || true
+          ls -la bin/
+
+      # Build the @layerv/qurl dependency (local file reference)
+      - name: Build QURL SDK
+        working-directory: ../qurl-typescript
+        if: hashFiles('../qurl-typescript/package.json') != ''
+        run: npm ci && npm run build
+        continue-on-error: true
+
+      - name: Sync desktop package version
+        working-directory: desktop
+        run: |
+          VERSION="${{ github.ref_name }}"
+          VERSION="${VERSION#v}"
+          npm version "$VERSION" --no-git-tag-version --allow-same-version
+
+      - name: Install dependencies
+        working-directory: desktop
+        run: npm ci
+
+      - name: Build & Publish desktop app
+        working-directory: desktop
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # macOS code signing (set up in repo secrets)
+          CSC_LINK: ${{ secrets.MAC_CERTIFICATE }}
+          CSC_KEY_PASSWORD: ${{ secrets.MAC_CERTIFICATE_PASSWORD }}
+          # Apple notarization
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: npx electron-builder --${{ matrix.platform }} --publish always

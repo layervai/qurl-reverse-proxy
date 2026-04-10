@@ -1,11 +1,14 @@
-module github.com/OpenNHP/nhp-frp
+module github.com/layervai/qurl-reverse-proxy
 
-go 1.25.6
+go 1.25.9
 
 require (
 	github.com/OpenNHP/opennhp/endpoints v0.0.0-20260118020651-91dcec886336
+	github.com/denisbrodbeck/machineid v1.0.1
 	github.com/fatedier/frp v0.67.0
+	github.com/go-jose/go-jose/v4 v4.1.3
 	github.com/spf13/cobra v1.10.2
+	gopkg.in/yaml.v3 v3.0.1
 )
 
 require (
@@ -22,14 +25,12 @@ require (
 	github.com/cloudwego/base64x v0.1.6 // indirect
 	github.com/coocood/freecache v1.2.5 // indirect
 	github.com/coreos/go-oidc/v3 v3.17.0 // indirect
-	github.com/denisbrodbeck/machineid v1.0.1 // indirect
-	github.com/emmansun/gmsm v0.41.0 // indirect
+	github.com/emmansun/gmsm v0.41.1 // indirect
 	github.com/fatedier/golib v0.5.1 // indirect
 	github.com/fsnotify/fsnotify v1.9.0 // indirect
 	github.com/gabriel-vasile/mimetype v1.4.12 // indirect
 	github.com/gin-contrib/sse v1.1.0 // indirect
 	github.com/gin-gonic/gin v1.12.0 // indirect
-	github.com/go-jose/go-jose/v4 v4.1.3 // indirect
 	github.com/go-playground/locales v0.14.1 // indirect
 	github.com/go-playground/universal-translator v0.18.1 // indirect
 	github.com/go-playground/validator/v10 v10.30.1 // indirect
@@ -94,7 +95,6 @@ require (
 	google.golang.org/protobuf v1.36.11 // indirect
 	gopkg.in/ini.v1 v1.67.0 // indirect
 	gopkg.in/yaml.v2 v2.4.0 // indirect
-	gopkg.in/yaml.v3 v3.0.1 // indirect
 	k8s.io/apimachinery v0.28.8 // indirect
 	k8s.io/utils v0.0.0-20230406110748-d93618cff8a2 // indirect
 	sigs.k8s.io/json v0.0.0-20221116044647-bc3834ca7abd // indirect
