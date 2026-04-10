@@ -3,6 +3,7 @@ import path from 'path';
 import { setupIpcHandlers, cleanupShares, initFileServer } from './ipc';
 import { createTray, destroyTray } from './tray';
 import { sidecar } from './ipc';
+import { updater } from './updater';
 
 let mainWindow: BrowserWindow | null = null;
 
@@ -63,6 +64,13 @@ app.whenReady().then(async () => {
   // Start file server if existing shares need serving
   await initFileServer();
 
+  // Start background update checker
+  updater.startPeriodicCheck((status) => {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('update:ready', status);
+    }
+  });
+
   app.on('activate', () => {
     if (mainWindow) {
       mainWindow.show();
@@ -81,6 +89,7 @@ app.on('window-all-closed', () => {
 
 app.on('before-quit', () => {
   isQuitting = true;
+  updater.stop();
   cleanupShares();
   destroyTray();
 });

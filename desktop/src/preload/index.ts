@@ -57,4 +57,17 @@ contextBridge.exposeInMainWorld('qurl', {
     readImagePreview: (filePath: string) => ipcRenderer.invoke('dialog:readImagePreview', filePath),
     openExternal: (url: string) => ipcRenderer.invoke('dialog:openExternal', url),
   },
+  update: {
+    check: () => ipcRenderer.invoke('update:check'),
+    applyAndRelaunch: () => ipcRenderer.invoke('update:applyAndRelaunch'),
+    onUpdateReady: (callback: (status: UpdateStatus) => void) => {
+      ipcRenderer.on('update:ready', (_event, status) => callback(status));
+    },
+    removeUpdateListener: () => {
+      ipcRenderer.removeAllListeners('update:ready');
+    },
+  },
+  app: {
+    getVersion: () => ipcRenderer.invoke('app:version'),
+  },
 });

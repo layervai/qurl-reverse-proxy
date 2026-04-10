@@ -2,6 +2,7 @@ import { ipcMain, dialog, app } from 'electron';
 import { SidecarManager } from './sidecar';
 import { FileServer } from './file-server';
 import { getClient, clearClient, apiRequest } from './qurl-api';
+import { updater } from './updater';
 import * as auth from './auth';
 import crypto from 'crypto';
 import path from 'path';
@@ -1119,6 +1120,32 @@ export function setupIpcHandlers(): void {
   ipcMain.handle('dialog:openExternal', async (_event, url: string) => {
     const { shell } = require('electron');
     await shell.openExternal(url);
+  });
+
+  // --- Updates ---
+
+  ipcMain.handle('update:check', async () => {
+    try {
+      const result = await updater.checkForUpdates();
+      return result;
+    } catch {
+      return { tunnelUpdate: null, appUpdate: null };
+    }
+  });
+
+  ipcMain.handle('update:applyAndRelaunch', async () => {
+    try {
+      const result = await updater.applyAndRelaunch(sidecar);
+      return { success: true, restarted: result.restarted };
+    } catch (err) {
+      return { success: false, error: formatApiError(err) };
+    }
+  });
+
+  // --- App Info ---
+
+  ipcMain.handle('app:version', () => {
+    return app.getVersion();
   });
 }
 

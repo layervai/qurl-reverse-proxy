@@ -33,6 +33,7 @@ func init() {
 	rootCmd.AddCommand(installServiceCmd)
 	rootCmd.AddCommand(uninstallServiceCmd)
 	rootCmd.AddCommand(statusCmd)
+	rootCmd.AddCommand(updateCmd)
 }
 
 // getToken returns the API token from the --token flag or LAYERV_TOKEN env var.

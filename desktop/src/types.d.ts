@@ -227,6 +227,39 @@ interface QUrlBridge {
     readImagePreview: (filePath: string) => Promise<string | null>;
     openExternal: (url: string) => Promise<void>;
   };
+  update: {
+    check: () => Promise<UpdateStatus>;
+    applyAndRelaunch: () => Promise<UpdateApplyResult>;
+    onUpdateReady: (callback: (status: UpdateStatus) => void) => void;
+    removeUpdateListener: () => void;
+  };
+  app: {
+    getVersion: () => Promise<string>;
+  };
+}
+
+// --- Updates ---
+
+interface TunnelUpdateInfo {
+  current: string;
+  latest: string;
+  downloaded: boolean;
+  releaseUrl: string;
+}
+
+interface AppUpdateInfo {
+  current: string;
+  latest: string;
+  releaseUrl: string;
+}
+
+interface UpdateStatus {
+  tunnelUpdate: TunnelUpdateInfo | null;
+  appUpdate: AppUpdateInfo | null;
+}
+
+interface UpdateApplyResult extends IpcResult {
+  restarted?: boolean;
 }
 
 interface Window {

@@ -55,10 +55,21 @@ export function App() {
   const [email, setEmail] = useState<string | null>(null);
   const [apiKeyHint, setApiKeyHint] = useState<string | null>(null);
   const [showSignOutConfirm, setShowSignOutConfirm] = useState(false);
+  const [updateStatus, setUpdateStatus] = useState<UpdateStatus | null>(null);
+  const [isUpdating, setIsUpdating] = useState(false);
+  const [appVersion, setAppVersion] = useState('0.1.0');
 
   useEffect(() => {
     const savedMode = localStorage.getItem('qurl:authMode') as AuthMode | null;
     if (savedMode === 'guest') setAuthMode('guest');
+  }, []);
+
+  // Fetch app version + listen for update notifications.
+  useEffect(() => {
+    window.qurl.app.getVersion().then(setAppVersion).catch(() => {});
+    window.qurl.update.check().then(setUpdateStatus).catch(() => {});
+    window.qurl.update.onUpdateReady(setUpdateStatus);
+    return () => window.qurl.update.removeUpdateListener();
   }, []);
 
   const handleAuthenticated = useCallback((mode: 'account' | 'guest', userEmail?: string, keyHint?: string) => {
@@ -158,12 +169,74 @@ export function App() {
           )}
         </div>
 
+        {/* ── Update Banner ── */}
+        {updateStatus?.tunnelUpdate?.downloaded && (
+          <div className="titlebar-no-drag mx-3 mb-2 animate-in">
+            <div className="rounded-lg bg-surface-2 border border-glass-border p-3 flex flex-col items-center gap-2">
+              {/* Update icon */}
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="text-text-tertiary">
+                <path d="M21 12a9 9 0 0 1-9 9m9-9a9 9 0 0 0-9-9m9 9H3m0 0a9 9 0 0 1 9-9m-9 9a9 9 0 0 0 9 9" />
+                <path d="M12 3v3m0 12v3" />
+              </svg>
+              <div className="text-center">
+                <div className="text-[12px] font-semibold text-text-primary">
+                  Updated to {updateStatus.tunnelUpdate.latest}
+                </div>
+                <div className="text-[11px] text-text-tertiary">
+                  Relaunch to apply
+                </div>
+              </div>
+              <button
+                onClick={async () => {
+                  setIsUpdating(true);
+                  try {
+                    const result = await window.qurl.update.applyAndRelaunch();
+                    if (result.success) {
+                      setUpdateStatus(null);
+                    }
+                  } catch { /* handled via IPC */ }
+                  setIsUpdating(false);
+                }}
+                disabled={isUpdating}
+                className="w-full py-1.5 rounded-md bg-surface-3 border border-glass-border text-[11px] font-medium text-text-secondary cursor-pointer transition-all duration-150 hover:bg-surface-4 hover:border-glass-border-hover disabled:opacity-50 disabled:cursor-default"
+              >
+                {isUpdating ? 'Restarting...' : 'Relaunch'}
+              </button>
+            </div>
+          </div>
+        )}
+
+        {updateStatus?.appUpdate && !updateStatus?.tunnelUpdate?.downloaded && (
+          <div className="titlebar-no-drag mx-3 mb-2 animate-in">
+            <div className="rounded-lg bg-surface-2 border border-glass-border p-3 flex flex-col items-center gap-2">
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="text-text-tertiary">
+                <path d="M21 12a9 9 0 0 1-9 9m9-9a9 9 0 0 0-9-9m9 9H3m0 0a9 9 0 0 1 9-9m-9 9a9 9 0 0 0 9 9" />
+                <path d="M12 3v3m0 12v3" />
+              </svg>
+              <div className="text-center">
+                <div className="text-[12px] font-semibold text-text-primary">
+                  Update {updateStatus.appUpdate.latest}
+                </div>
+                <div className="text-[11px] text-text-tertiary">
+                  New version available
+                </div>
+              </div>
+              <button
+                onClick={() => window.qurl.dialog.openExternal(updateStatus!.appUpdate!.releaseUrl)}
+                className="w-full py-1.5 rounded-md bg-surface-3 border border-glass-border text-[11px] font-medium text-text-secondary cursor-pointer transition-all duration-150 hover:bg-surface-4 hover:border-glass-border-hover"
+              >
+                Download
+              </button>
+            </div>
+          </div>
+        )}
+
         {/* Footer */}
         <div
           className="titlebar-no-drag px-4 py-3 border-t border-glass-border flex items-center justify-between"
         >
           <span className="text-[10px] text-text-tertiary font-mono font-medium tracking-widest">
-            v0.1.0
+            v{appVersion}
           </span>
           <button
             onClick={() => setShowSignOutConfirm(true)}
