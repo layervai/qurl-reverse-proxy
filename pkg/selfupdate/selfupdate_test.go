@@ -57,6 +57,22 @@ func testTarball(t *testing.T, files map[string][]byte) []byte {
 	return buf.Bytes()
 }
 
+// serveJSON is a test helper that writes JSON to an http.ResponseWriter.
+func serveJSON(t *testing.T, w http.ResponseWriter, v any) {
+	t.Helper()
+	if err := json.NewEncoder(w).Encode(v); err != nil {
+		t.Errorf("encode JSON: %v", err)
+	}
+}
+
+// serveBytes is a test helper that writes raw bytes to an http.ResponseWriter.
+func serveBytes(t *testing.T, w http.ResponseWriter, data []byte) {
+	t.Helper()
+	if _, err := w.Write(data); err != nil {
+		t.Errorf("write response: %v", err)
+	}
+}
+
 func TestCheckForUpdate_Available(t *testing.T) {
 	wantAsset := assetName("v1.1.0")
 	release := testRelease("v1.1.0", asset{
@@ -64,9 +80,9 @@ func TestCheckForUpdate_Available(t *testing.T) {
 		BrowserDownloadURL: "https://example.com/download/" + wantAsset,
 	})
 
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(release)
+		serveJSON(t, w, release)
 	}))
 	defer srv.Close()
 
@@ -97,7 +113,7 @@ func TestCheckForUpdate_UpToDate(t *testing.T) {
 	release := testRelease("v1.0.0")
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		_ = json.NewEncoder(w).Encode(release)
+		serveJSON(t, w, release)
 	}))
 	defer srv.Close()
 
@@ -116,7 +132,7 @@ func TestCheckForUpdate_OlderRelease(t *testing.T) {
 	release := testRelease("v0.9.0")
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		_ = json.NewEncoder(w).Encode(release)
+		serveJSON(t, w, release)
 	}))
 	defer srv.Close()
 
@@ -152,7 +168,7 @@ func TestCheckForUpdate_DevBuild(t *testing.T) {
 
 func TestCheckForUpdate_NetworkError(t *testing.T) {
 	// Closed server simulates network failure.
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {}))
+	srv := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) {}))
 	srv.Close()
 
 	u := &Updater{APIEndpoint: srv.URL}
@@ -185,7 +201,7 @@ func TestCheckForUpdate_AssetMatching(t *testing.T) {
 	)
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		_ = json.NewEncoder(w).Encode(release)
+		serveJSON(t, w, release)
 	}))
 	defer srv.Close()
 
@@ -212,7 +228,7 @@ func TestCheckForUpdate_NoMatchingAsset(t *testing.T) {
 	)
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		_ = json.NewEncoder(w).Encode(release)
+		serveJSON(t, w, release)
 	}))
 	defer srv.Close()
 
@@ -233,7 +249,7 @@ func TestCheckForUpdate_NoMatchingAsset(t *testing.T) {
 }
 
 func TestCheckForUpdate_ContextCanceled(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+	srv := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) {
 		// slow response
 		select {}
 	}))
@@ -256,17 +272,17 @@ func TestDownload(t *testing.T) {
 	}
 
 	tarballData := testTarball(t, map[string][]byte{
-		binaryName:             []byte("#!/bin/sh\necho fake-binary"),
-		"qurl-frps":           []byte("#!/bin/sh\necho server"),
-		"sdk/nhp-agent.so":    []byte("fake-sdk"),
-		"sdk/nhp-agent.h":     []byte("// header"),
-		"etc/config.yaml":     []byte("config: true"),
-		"LICENSE":             []byte("MIT"),
+		binaryName:          []byte("#!/bin/sh\necho fake-binary"),
+		"qurl-frps":        []byte("#!/bin/sh\necho server"),
+		"sdk/nhp-agent.so": []byte("fake-sdk"),
+		"sdk/nhp-agent.h":  []byte("// header"),
+		"etc/config.yaml":  []byte("config: true"),
+		"LICENSE":           []byte("MIT"),
 	})
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/gzip")
-		_, _ = w.Write(tarballData)
+		serveBytes(t, w, tarballData)
 	}))
 	defer srv.Close()
 
@@ -349,7 +365,7 @@ func TestDownload_MissingBinary(t *testing.T) {
 	})
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		_, _ = w.Write(tarballData)
+		serveBytes(t, w, tarballData)
 	}))
 	defer srv.Close()
 
@@ -424,10 +440,6 @@ func TestApply(t *testing.T) {
 }
 
 func TestApply_Rollback(t *testing.T) {
-	if os.Getuid() == 0 {
-		t.Skip("test requires non-root (root bypasses permission checks)")
-	}
-
 	installDir := t.TempDir()
 	stagingDir := filepath.Join(installDir, stagingDirName)
 	if err := os.MkdirAll(stagingDir, 0o755); err != nil {
@@ -466,7 +478,6 @@ func TestApply_Rollback(t *testing.T) {
 	if err := os.Chmod(installSDK, 0o444); err != nil {
 		t.Fatal(err)
 	}
-	// Restore permissions for cleanup.
 	t.Cleanup(func() { _ = os.Chmod(installSDK, 0o755) })
 
 	err := Apply(stagingDir, installDir)
@@ -545,23 +556,29 @@ func TestHasStagedUpdate(t *testing.T) {
 
 	// Create staging with binary.
 	stagingDir := filepath.Join(dir, stagingDirName)
-	_ = os.MkdirAll(stagingDir, 0o755)
-	_ = os.WriteFile(filepath.Join(stagingDir, "qurl-frpc"), []byte("staged"), 0o755)
+	if err := os.MkdirAll(stagingDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(stagingDir, "qurl-frpc"), []byte("staged"), 0o755); err != nil {
+		t.Fatal(err)
+	}
 
-	path, ok := HasStagedUpdate(dir, "qurl-frpc")
+	p, ok := HasStagedUpdate(dir, "qurl-frpc")
 	if !ok {
 		t.Error("expected staged update to be found")
 	}
-	if path != stagingDir {
-		t.Errorf("staging path = %q, want %q", path, stagingDir)
+	if p != stagingDir {
+		t.Errorf("staging path = %q, want %q", p, stagingDir)
 	}
 }
 
 func TestExtractTarGz_DirectoryTraversal(t *testing.T) {
 	// Tarball with a path traversal attempt — should be skipped.
+	// The extractTarGz function filters by binary name and sdk/ prefix,
+	// so the traversal path is ignored because it doesn't match either filter.
 	tarballData := testTarball(t, map[string][]byte{
-		"../../../tmp/evil-qurl-traversal-test": []byte("evil"),
-		"qurl-frpc": []byte("safe-binary"),
+		"../../../etc/passwd": []byte("evil"),
+		"qurl-frpc":          []byte("safe-binary"),
 	})
 
 	destDir := t.TempDir()
@@ -576,17 +593,16 @@ func TestExtractTarGz_DirectoryTraversal(t *testing.T) {
 		t.Error("binary should be extracted")
 	}
 
-	// Traversal file should NOT exist anywhere in destDir.
-	entries, _ := os.ReadDir(destDir)
-	for _, e := range entries {
-		if e.Name() == "tmp" || e.Name() == "etc" {
-			t.Errorf("directory traversal created unexpected entry: %s", e.Name())
-		}
+	// The traversal path should never appear inside destDir.
+	// (It's filtered out by the binary/sdk allowlist before the path check matters.)
+	traversalTarget := filepath.Join(destDir, "etc", "passwd")
+	if _, err := os.Stat(traversalTarget); !os.IsNotExist(err) {
+		t.Error("traversal file should not be extracted inside destDir")
 	}
 }
 
 func TestDownload_ContextCanceled(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+	srv := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) {
 		// Simulate a slow download.
 		select {}
 	}))
@@ -626,9 +642,9 @@ func TestEndToEnd_CheckDownloadApply(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/api":
-			_ = json.NewEncoder(w).Encode(release)
+			serveJSON(t, w, release)
 		case assetPath:
-			_, _ = w.Write(tarballData)
+			serveBytes(t, w, tarballData)
 		default:
 			w.WriteHeader(http.StatusNotFound)
 		}
@@ -642,9 +658,9 @@ func TestEndToEnd_CheckDownloadApply(t *testing.T) {
 	srv.Config.Handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/api":
-			_ = json.NewEncoder(w).Encode(release)
+			serveJSON(t, w, release)
 		case assetPath:
-			_, _ = w.Write(tarballData)
+			serveBytes(t, w, tarballData)
 		default:
 			w.WriteHeader(http.StatusNotFound)
 		}
@@ -653,9 +669,15 @@ func TestEndToEnd_CheckDownloadApply(t *testing.T) {
 	// Setup install directory with an existing binary.
 	installDir := t.TempDir()
 	existingBinary := filepath.Join(installDir, binaryName)
-	_ = os.WriteFile(existingBinary, []byte("old-binary-v1.0.0"), 0o755)
-	_ = os.MkdirAll(filepath.Join(installDir, "sdk"), 0o755)
-	_ = os.WriteFile(filepath.Join(installDir, "sdk", "nhp-agent.so"), []byte("old-sdk"), 0o644)
+	if err := os.WriteFile(existingBinary, []byte("old-binary-v1.0.0"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(installDir, "sdk"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(installDir, "sdk", "nhp-agent.so"), []byte("old-sdk"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 
 	ctx := context.Background()
 	u := &Updater{
