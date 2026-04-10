@@ -337,7 +337,7 @@ func extractTarGz(r io.Reader, destDir, binaryName string) error {
 	if err != nil {
 		return fmt.Errorf("gzip reader: %w", err)
 	}
-	defer gz.Close()
+	defer func() { _ = gz.Close() }()
 
 	tr := tar.NewReader(gz)
 	for {
@@ -393,10 +393,12 @@ func extractTarGz(r io.Reader, destDir, binaryName string) error {
 			}
 
 			if _, err := io.Copy(f, tr); err != nil {
-				f.Close()
+				_ = f.Close()
 				return fmt.Errorf("write %s: %w", name, err)
 			}
-			f.Close()
+			if err := f.Close(); err != nil {
+				return fmt.Errorf("close %s: %w", name, err)
+			}
 		}
 	}
 
@@ -415,7 +417,7 @@ func moveFile(src, dst string) error {
 	if err != nil {
 		return err
 	}
-	defer in.Close()
+	defer func() { _ = in.Close() }()
 
 	info, err := in.Stat()
 	if err != nil {
@@ -428,11 +430,13 @@ func moveFile(src, dst string) error {
 	}
 
 	if _, err := io.Copy(out, in); err != nil {
-		out.Close()
+		_ = out.Close()
 		_ = os.Remove(dst)
 		return err
 	}
-	out.Close()
+	if err := out.Close(); err != nil {
+		return err
+	}
 
 	return os.Remove(src)
 }

@@ -66,7 +66,7 @@ func TestCheckForUpdate_Available(t *testing.T) {
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(release)
+		_ = json.NewEncoder(w).Encode(release)
 	}))
 	defer srv.Close()
 
@@ -97,7 +97,7 @@ func TestCheckForUpdate_UpToDate(t *testing.T) {
 	release := testRelease("v1.0.0")
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		json.NewEncoder(w).Encode(release)
+		_ = json.NewEncoder(w).Encode(release)
 	}))
 	defer srv.Close()
 
@@ -116,7 +116,7 @@ func TestCheckForUpdate_OlderRelease(t *testing.T) {
 	release := testRelease("v0.9.0")
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		json.NewEncoder(w).Encode(release)
+		_ = json.NewEncoder(w).Encode(release)
 	}))
 	defer srv.Close()
 
@@ -185,7 +185,7 @@ func TestCheckForUpdate_AssetMatching(t *testing.T) {
 	)
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		json.NewEncoder(w).Encode(release)
+		_ = json.NewEncoder(w).Encode(release)
 	}))
 	defer srv.Close()
 
@@ -212,7 +212,7 @@ func TestCheckForUpdate_NoMatchingAsset(t *testing.T) {
 	)
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		json.NewEncoder(w).Encode(release)
+		_ = json.NewEncoder(w).Encode(release)
 	}))
 	defer srv.Close()
 
@@ -266,7 +266,7 @@ func TestDownload(t *testing.T) {
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/gzip")
-		w.Write(tarballData)
+		_, _ = w.Write(tarballData)
 	}))
 	defer srv.Close()
 
@@ -349,7 +349,7 @@ func TestDownload_MissingBinary(t *testing.T) {
 	})
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		w.Write(tarballData)
+		_, _ = w.Write(tarballData)
 	}))
 	defer srv.Close()
 
@@ -424,6 +424,10 @@ func TestApply(t *testing.T) {
 }
 
 func TestApply_Rollback(t *testing.T) {
+	if os.Getuid() == 0 {
+		t.Skip("test requires non-root (root bypasses permission checks)")
+	}
+
 	installDir := t.TempDir()
 	stagingDir := filepath.Join(installDir, stagingDirName)
 	if err := os.MkdirAll(stagingDir, 0o755); err != nil {
@@ -463,7 +467,7 @@ func TestApply_Rollback(t *testing.T) {
 		t.Fatal(err)
 	}
 	// Restore permissions for cleanup.
-	t.Cleanup(func() { os.Chmod(installSDK, 0o755) })
+	t.Cleanup(func() { _ = os.Chmod(installSDK, 0o755) })
 
 	err := Apply(stagingDir, installDir)
 	if err == nil {
@@ -541,8 +545,8 @@ func TestHasStagedUpdate(t *testing.T) {
 
 	// Create staging with binary.
 	stagingDir := filepath.Join(dir, stagingDirName)
-	os.MkdirAll(stagingDir, 0o755)
-	os.WriteFile(filepath.Join(stagingDir, "qurl-frpc"), []byte("staged"), 0o755)
+	_ = os.MkdirAll(stagingDir, 0o755)
+	_ = os.WriteFile(filepath.Join(stagingDir, "qurl-frpc"), []byte("staged"), 0o755)
 
 	path, ok := HasStagedUpdate(dir, "qurl-frpc")
 	if !ok {
@@ -556,8 +560,8 @@ func TestHasStagedUpdate(t *testing.T) {
 func TestExtractTarGz_DirectoryTraversal(t *testing.T) {
 	// Tarball with a path traversal attempt — should be skipped.
 	tarballData := testTarball(t, map[string][]byte{
-		"../../../etc/passwd": []byte("evil"),
-		"qurl-frpc":          []byte("safe-binary"),
+		"../../../tmp/evil-qurl-traversal-test": []byte("evil"),
+		"qurl-frpc": []byte("safe-binary"),
 	})
 
 	destDir := t.TempDir()
@@ -572,9 +576,12 @@ func TestExtractTarGz_DirectoryTraversal(t *testing.T) {
 		t.Error("binary should be extracted")
 	}
 
-	// Traversal file should NOT exist.
-	if _, err := os.Stat(filepath.Join(destDir, "..", "..", "..", "etc", "passwd")); !os.IsNotExist(err) {
-		t.Error("directory traversal file should not be extracted")
+	// Traversal file should NOT exist anywhere in destDir.
+	entries, _ := os.ReadDir(destDir)
+	for _, e := range entries {
+		if e.Name() == "tmp" || e.Name() == "etc" {
+			t.Errorf("directory traversal created unexpected entry: %s", e.Name())
+		}
 	}
 }
 
@@ -619,9 +626,9 @@ func TestEndToEnd_CheckDownloadApply(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/api":
-			json.NewEncoder(w).Encode(release)
+			_ = json.NewEncoder(w).Encode(release)
 		case assetPath:
-			w.Write(tarballData)
+			_, _ = w.Write(tarballData)
 		default:
 			w.WriteHeader(http.StatusNotFound)
 		}
@@ -635,9 +642,9 @@ func TestEndToEnd_CheckDownloadApply(t *testing.T) {
 	srv.Config.Handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/api":
-			json.NewEncoder(w).Encode(release)
+			_ = json.NewEncoder(w).Encode(release)
 		case assetPath:
-			w.Write(tarballData)
+			_, _ = w.Write(tarballData)
 		default:
 			w.WriteHeader(http.StatusNotFound)
 		}
@@ -646,9 +653,9 @@ func TestEndToEnd_CheckDownloadApply(t *testing.T) {
 	// Setup install directory with an existing binary.
 	installDir := t.TempDir()
 	existingBinary := filepath.Join(installDir, binaryName)
-	os.WriteFile(existingBinary, []byte("old-binary-v1.0.0"), 0o755)
-	os.MkdirAll(filepath.Join(installDir, "sdk"), 0o755)
-	os.WriteFile(filepath.Join(installDir, "sdk", "nhp-agent.so"), []byte("old-sdk"), 0o644)
+	_ = os.WriteFile(existingBinary, []byte("old-binary-v1.0.0"), 0o755)
+	_ = os.MkdirAll(filepath.Join(installDir, "sdk"), 0o755)
+	_ = os.WriteFile(filepath.Join(installDir, "sdk", "nhp-agent.so"), []byte("old-sdk"), 0o644)
 
 	ctx := context.Background()
 	u := &Updater{
