@@ -1115,6 +1115,11 @@ export function setupIpcHandlers(): void {
       return null;
     }
   });
+
+  ipcMain.handle('dialog:openExternal', async (_event, url: string) => {
+    const { shell } = require('electron');
+    await shell.openExternal(url);
+  });
 }
 
 export function cleanupShares(): void {
@@ -1170,4 +1175,64 @@ export async function initFileServer(): Promise<void> {
   }
   // Note: qurl-files route is always kept (managed by sidecar.ensureFilesRoute).
   // The file server starts on-demand when files are shared.
+
+  // Auto-start tunnel if enabled in settings
+  const defaults = loadDefaults();
+  if (defaults.autoStartTunnel) {
+    try {
+      await sidecar.start();
+    } catch {
+      // Best effort — user will see "Disconnected" and can start manually
+    }
+  }
+
+  // Periodic cleanup: remove files whose QURLs are no longer active
+  setInterval(() => cleanupStaleShares(), 60_000);
+}
+
+/**
+ * Check all active shares against the API and remove files whose
+ * QURLs have expired or been revoked.
+ */
+async function cleanupStaleShares(): Promise<void> {
+  if (activeShares.size === 0) return;
+
+  const tokens = auth.getTokens();
+  if (!tokens?.accessToken) return;
+
+  let changed = false;
+  for (const [id, share] of activeShares) {
+    let shouldRemove = false;
+    try {
+      if (share.resourceId) {
+        // Use apiRequest directly to get resource + qurls (SDK client.get doesn't include qurls)
+        const result = await apiRequest<{ data: { resource: Record<string, unknown>; qurls: Array<{ status: string }> } }>(
+          'GET', `/v1/resources/${encodeURIComponent(share.resourceId)}`
+        );
+        const resource = result.data.resource;
+        const qurls = result.data.qurls || [];
+
+        if (resource.status !== 'active') {
+          shouldRemove = true;
+        } else {
+          const hasActiveQurl = qurls.some((q) => q.status === 'active');
+          if (!hasActiveQurl) shouldRemove = true;
+        }
+      }
+    } catch {
+      // Resource not found or API error = remove
+      shouldRemove = true;
+    }
+
+    if (shouldRemove) {
+      if (share.filePath) removeTokenDir(share.filePath);
+      activeShares.delete(id);
+      changed = true;
+    }
+  }
+
+  if (changed) {
+    persistShares();
+    cleanOrphanedShares();
+  }
 }

@@ -41,7 +41,6 @@ function optionsToDefaults(o: Partial<QURLCreateInput>): ResourceTypeDefaults {
 export function Settings() {
   const [autoStart, setAutoStart] = useState(false);
   const [sidecarRunning, setSidecarRunning] = useState(false);
-  const [saved, setSaved] = useState(false);
   const [isSignedIn, setIsSignedIn] = useState(false);
 
   // QURL defaults
@@ -53,9 +52,6 @@ export function Settings() {
   });
 
   useEffect(() => {
-    const savedAutoStart = localStorage.getItem('qurl:autoStart');
-    if (savedAutoStart) setAutoStart(savedAutoStart === 'true');
-
     window.qurl.sidecar.status().then((status) => {
       setSidecarRunning(status.running);
     });
@@ -66,23 +62,18 @@ export function Settings() {
 
     window.qurl.settings.getDefaults().then((d) => {
       setDefaults(d);
+      setAutoStart(d.autoStartTunnel || false);
     }).catch(() => {
       // Use initial defaults
     });
   }, []);
 
-  const handleSave = useCallback(async () => {
-    localStorage.setItem('qurl:autoStart', String(autoStart));
-
+  const handleToggleAutoStart = useCallback(async (enabled: boolean) => {
+    setAutoStart(enabled);
     try {
-      await window.qurl.settings.setDefaults(defaults);
-    } catch {
-      // Ignore save errors for remote defaults
-    }
-
-    setSaved(true);
-    setTimeout(() => setSaved(false), 2000);
-  }, [autoStart, defaults]);
+      await window.qurl.settings.setDefaults({ autoStartTunnel: enabled });
+    } catch { /* best effort */ }
+  }, []);
 
   const handleSignIn = useCallback(() => {
     window.qurl.auth.signIn().then((result) => {
@@ -92,10 +83,12 @@ export function Settings() {
 
   const handleDefaultsChange = useCallback(
     (tab: DefaultsTab, value: Partial<QURLCreateInput>) => {
-      setDefaults((prev) => ({
-        ...prev,
-        [tab]: optionsToDefaults(value),
-      }));
+      setDefaults((prev) => {
+        const updated = { ...prev, [tab]: optionsToDefaults(value) };
+        // Auto-save
+        window.qurl.settings.setDefaults(updated).catch(() => {});
+        return updated;
+      });
     },
     [],
   );
@@ -217,9 +210,6 @@ export function Settings() {
 
           {/* Access policy form in compact mode */}
           <div className="mt-1">
-            <label className="text-xs font-medium text-text-secondary mb-2 block">
-              Default Access Policy
-            </label>
             <AccessPolicyForm
               value={defaultsToOptions(currentDefaults)}
               onChange={(value) => handleDefaultsChange(defaultsTab, value)}
@@ -239,7 +229,7 @@ export function Settings() {
           </p>
         </div>
         <button
-          onClick={() => setAutoStart(!autoStart)}
+          onClick={() => handleToggleAutoStart(!autoStart)}
           className={`
             relative w-10 h-[22px] rounded-full shrink-0 transition-colors duration-200
             ${autoStart ? 'bg-accent' : 'bg-surface-3'}
@@ -265,21 +255,6 @@ export function Settings() {
         </span>
       </div>
 
-      {/* Save button */}
-      <div className="flex justify-end">
-        <button
-          onClick={handleSave}
-          className={`
-            text-white px-8 py-2.5 rounded-lg font-semibold text-sm transition-all duration-150
-            ${saved
-              ? 'bg-success'
-              : 'bg-gradient-to-r from-accent to-[#D406B9] cursor-pointer hover:shadow-[0_0_20px_rgba(0,153,255,0.25)]'
-            }
-          `}
-        >
-          {saved ? 'Saved!' : 'Save Settings'}
-        </button>
-      </div>
     </div>
   );
 }

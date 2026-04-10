@@ -198,37 +198,84 @@ export class FileServer {
     const stat = fs.statSync(fullPath);
 
     if (stat.isDirectory()) {
-      // Serve directory listing
-      const entries = fs.readdirSync(fullPath, { withFileTypes: true });
-      const items = entries.map((entry) => {
-        const isDir = entry.isDirectory();
-        const href = path.posix.join(urlPath, entry.name) + (isDir ? '/' : '');
-        const size = isDir ? '-' : this.formatSize(fs.statSync(path.join(fullPath, entry.name)).size);
-        return `<tr>
-          <td><a href="${href}">${entry.name}${isDir ? '/' : ''}</a></td>
-          <td>${size}</td>
-        </tr>`;
-      });
+      // At the root level, flatten token directories to show actual filenames
+      const isRoot = safePath === '/' || safePath === '.' || safePath === '';
+      let items: string[] = [];
 
+      if (isRoot) {
+        // Walk each token directory and list the files inside
+        const tokenDirs = fs.readdirSync(fullPath, { withFileTypes: true }).filter((e) => e.isDirectory());
+        for (const tokenDir of tokenDirs) {
+          const tokenPath = path.join(fullPath, tokenDir.name);
+          try {
+            const files = fs.readdirSync(tokenPath, { withFileTypes: true });
+            for (const file of files) {
+              if (file.isFile()) {
+                const fileStat = fs.statSync(path.join(tokenPath, file.name));
+                const href = `/${tokenDir.name}/${encodeURIComponent(file.name)}`;
+                const size = this.formatSize(fileStat.size);
+                const modified = fileStat.mtime.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+                items.push(`<tr>
+                  <td><a href="${href}">${this.escapeHtml(file.name)}</a></td>
+                  <td>${size}</td>
+                  <td>${modified}</td>
+                </tr>`);
+              }
+            }
+          } catch { /* skip unreadable dirs */ }
+        }
+      } else {
+        const entries = fs.readdirSync(fullPath, { withFileTypes: true });
+        items = entries.map((entry) => {
+          const isDir = entry.isDirectory();
+          const href = path.posix.join(urlPath, entry.name) + (isDir ? '/' : '');
+          const fileStat = fs.statSync(path.join(fullPath, entry.name));
+          const size = isDir ? '-' : this.formatSize(fileStat.size);
+          const modified = fileStat.mtime.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+          return `<tr>
+            <td><a href="${href}">${this.escapeHtml(entry.name)}${isDir ? '/' : ''}</a></td>
+            <td>${size}</td>
+            <td>${modified}</td>
+          </tr>`;
+        });
+      }
+
+      const title = isRoot ? 'Shared Files' : `Index of ${this.escapeHtml(urlPath)}`;
       const html = `<!DOCTYPE html>
 <html>
-<head><title>Index of ${urlPath}</title>
+<head><meta charset="UTF-8"><title>${title} - QURL</title>
 <style>
-  body { font-family: system-ui, sans-serif; background: #0a0e27; color: #e0e0e0; padding: 2rem; }
-  a { color: #4facfe; text-decoration: none; }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: 'Plus Jakarta Sans', system-ui, sans-serif; background: #030712; color: #d1d5db; padding: 2.5rem; min-height: 100vh; }
+  .header { margin-bottom: 2rem; }
+  .header h1 { font-size: 1.25rem; font-weight: 600; color: #f9fafb; letter-spacing: -0.01em; }
+  .header p { font-size: 0.8125rem; color: #6b7280; margin-top: 0.25rem; }
+  .bar { height: 3px; width: 60px; background: linear-gradient(90deg, #0099FF, #D406B9); border-radius: 2px; margin-top: 0.75rem; }
+  table { border-collapse: collapse; width: 100%; max-width: 720px; }
+  th { text-align: left; padding: 0.625rem 1rem; color: #6b7280; font-weight: 500; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em; border-bottom: 1px solid rgba(255,255,255,0.06); }
+  td { padding: 0.75rem 1rem; border-bottom: 1px solid rgba(255,255,255,0.04); font-size: 0.8125rem; }
+  td:nth-child(2), td:nth-child(3) { color: #6b7280; font-size: 0.75rem; }
+  tr:hover td { background: rgba(255,255,255,0.02); }
+  a { color: #0099FF; text-decoration: none; }
   a:hover { text-decoration: underline; }
-  table { border-collapse: collapse; width: 100%; max-width: 800px; }
-  th, td { text-align: left; padding: 0.5rem 1rem; border-bottom: 1px solid #1a1e37; }
-  th { color: #888; font-weight: 500; }
+  .empty { text-align: center; padding: 3rem 1rem; color: #6b7280; }
+  .brand { position: fixed; bottom: 1.5rem; right: 2rem; font-size: 0.6875rem; color: #374151; letter-spacing: 0.05em; }
 </style>
 </head>
 <body>
-  <h2>Index of ${urlPath}</h2>
-  <table>
-    <tr><th>Name</th><th>Size</th></tr>
-    ${urlPath !== '/' ? '<tr><td><a href="../">../</a></td><td>-</td></tr>' : ''}
+  <div class="header">
+    <h1>${title}</h1>
+    <p>${isRoot ? 'Files currently being shared through QURL' : ''}</p>
+    <div class="bar"></div>
+  </div>
+  ${items.length === 0
+    ? '<div class="empty">No files currently shared</div>'
+    : `<table>
+    <tr><th>File</th><th>Size</th><th>Modified</th></tr>
+    ${!isRoot && urlPath !== '/' ? '<tr><td><a href="../">..</a></td><td></td><td></td></tr>' : ''}
     ${items.join('\n')}
-  </table>
+  </table>`}
+  <div class="brand">QURL File Sharing</div>
 </body>
 </html>`;
 
@@ -237,6 +284,10 @@ export class FileServer {
     } else {
       this.serveFile(fullPath, req, res);
     }
+  }
+
+  private escapeHtml(str: string): string {
+    return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
   }
 
   private formatSize(bytes: number): string {

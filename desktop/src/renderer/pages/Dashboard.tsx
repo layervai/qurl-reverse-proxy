@@ -511,11 +511,10 @@ export function Dashboard() {
                     {/* Metadata row */}
                     {t.enabled && (
                       <div className="flex items-center gap-4 text-[11px] text-text-muted mt-2.5 pl-[52px]">
-                        {isBuiltIn && isActive && (
+                        {isBuiltIn && (
                           <button
                             onClick={() => {
-                              const url = `http://127.0.0.1:${t.localPort}`;
-                              window.open(url, '_blank');
+                              window.qurl.dialog.openExternal(`http://127.0.0.1:${t.localPort}`);
                             }}
                             className="text-accent hover:underline cursor-pointer bg-transparent font-sans text-[11px]"
                           >
@@ -524,7 +523,7 @@ export function Dashboard() {
                         )}
                         {!isBuiltIn && t.publicUrl && (
                           <button
-                            onClick={() => window.open(t.publicUrl!, '_blank')}
+                            onClick={() => window.qurl.dialog.openExternal(t.publicUrl!)}
                             className="font-mono text-accent hover:underline cursor-pointer bg-transparent text-[11px] truncate"
                           >
                             {t.publicUrl}

@@ -174,6 +174,7 @@ interface QURLDefaults {
   url: ResourceTypeDefaults;
   file: ResourceTypeDefaults;
   service: ResourceTypeDefaults;
+  autoStartTunnel?: boolean;
 }
 
 // --- Bridge ---
@@ -224,6 +225,7 @@ interface QUrlBridge {
   dialog: {
     openFile: () => Promise<string[] | null>;
     readImagePreview: (filePath: string) => Promise<string | null>;
+    openExternal: (url: string) => Promise<void>;
   };
 }
 

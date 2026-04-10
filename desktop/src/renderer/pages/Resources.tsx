@@ -95,9 +95,9 @@ function getEffectiveState(q: QURLInfo, detail?: ResourceDetail): EffectiveState
     const hasActiveQurl = detail.qurls.some((t) => t.status === 'active');
     return hasActiveQurl ? 'sharing' : 'dormant';
   }
-  // Without detail, check the resource's own expiry
-  if (q.expires_at && new Date(q.expires_at).getTime() <= Date.now()) return 'dormant';
-  return 'sharing';
+  // Without detail loaded yet, show dormant (conservative) rather than
+  // flashing green — the correct state will render once detail arrives
+  return 'dormant';
 }
 
 type EffectiveStyle = { dotClass: string; textClass: string; label: string; borderClass: string; glowClass: string };
