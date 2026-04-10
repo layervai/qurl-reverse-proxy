@@ -422,7 +422,42 @@ function FilterDropdown({
 // Resources page
 // ---------------------------------------------------------------------------
 
-export function Resources() {
+interface QurlsProps {
+  mode: 'files' | 'http' | 'ssh';
+}
+
+const MODE_META: Record<string, { title: string; subtitle: string; newBtn: string; createTitle: string; emptyTitle: string; emptyHint: string; typeMatch: string[] }> = {
+  files: {
+    title: 'Files',
+    subtitle: 'Manage secure access links for your shared files.',
+    newBtn: '+ New File',
+    createTitle: 'Share File',
+    emptyTitle: 'No files shared yet',
+    emptyHint: 'Drop a file or click the button above to create a secure, time-limited download link.',
+    typeMatch: ['file'],
+  },
+  http: {
+    title: 'HTTP Services',
+    subtitle: 'Manage secure access links for your web apps and APIs.',
+    newBtn: '+ New HTTP Service',
+    createTitle: 'Expose HTTP Service',
+    emptyTitle: 'No HTTP services shared',
+    emptyHint: 'Expose a local web app or API by entering its URL. Local services are automatically tunneled.',
+    typeMatch: ['tunneled', 'private', 'public'],
+  },
+  ssh: {
+    title: 'SSH Services',
+    subtitle: 'Manage secure access links for your SSH servers.',
+    newBtn: '+ New SSH Service',
+    createTitle: 'Expose SSH Service',
+    emptyTitle: 'No SSH services shared',
+    emptyHint: 'Expose a local SSH server through a secure QURL TCP tunnel.',
+    typeMatch: [],
+  },
+};
+
+export function Qurls({ mode }: QurlsProps) {
+  const meta = MODE_META[mode];
   // --- Data ---
   const [resources, setResources] = useState<QURLInfo[]>([]);
   const [loading, setLoading] = useState(true);
@@ -430,7 +465,6 @@ export function Resources() {
 
   // --- Filter ---
   const [filter, setFilter] = useState<FilterTab>('active');
-  const [typeFilter, setTypeFilter] = useState<string>('all');
   const [dateRange, setDateRange] = useState<string>('all');
 
   // --- Create form ---
@@ -439,6 +473,10 @@ export function Resources() {
     target_url: '',
     expires_in: '24h',
   });
+  // SSH-specific state
+  const [sshHost, setSshHost] = useState('localhost');
+  const [sshPort, setSshPort] = useState('22');
+  const [sshName, setSshName] = useState('');
   const [creating, setCreating] = useState(false);
   const [pendingFile, setPendingFile] = useState<{ path: string; name: string } | null>(null);
   const [qurlDefaults, setQurlDefaults] = useState<QURLDefaults | null>(null);
@@ -545,11 +583,13 @@ export function Resources() {
   // Filter counts & filtered list
   // ---------------------------------------------------------------------------
 
+  // Pre-filter by mode
+  const modeResources = useMemo(() => {
+    return resources.filter((r) => meta.typeMatch.includes(getTypeIndicator(r.target_url).label));
+  }, [resources, meta.typeMatch]);
+
   const counts = useMemo(() => {
-    let pool = resources;
-    if (typeFilter !== 'all') {
-      pool = pool.filter((r) => getTypeIndicator(r.target_url).label === typeFilter);
-    }
+    let pool = modeResources;
     if (dateRange !== 'all') {
       const now = Date.now();
       const cutoff =
@@ -572,30 +612,27 @@ export function Resources() {
       }
     }
     return { active, inactive, revoked, all: pool.length };
-  }, [resources, resourceDetails, typeFilter, dateRange]);
+  }, [modeResources, resourceDetails, dateRange]);
 
   const filteredResources = useMemo(() => {
     let result: QURLInfo[];
     if (filter === 'active') {
-      result = resources.filter((r) => {
+      result = modeResources.filter((r) => {
         if (r.status === 'revoked') return false;
         const detail = resourceDetails[r.resource_id];
         return getEffectiveState(r, detail) === 'sharing';
       });
     } else if (filter === 'inactive') {
-      result = resources.filter((r) => {
+      result = modeResources.filter((r) => {
         if (r.status === 'revoked') return false;
         const detail = resourceDetails[r.resource_id];
         const state = getEffectiveState(r, detail);
         return state === 'dormant' || state === 'expired';
       });
     } else if (filter === 'revoked') {
-      result = resources.filter((r) => r.status === 'revoked');
+      result = modeResources.filter((r) => r.status === 'revoked');
     } else {
-      result = [...resources];
-    }
-    if (typeFilter !== 'all') {
-      result = result.filter((r) => getTypeIndicator(r.target_url).label === typeFilter);
+      result = [...modeResources];
     }
     if (dateRange !== 'all') {
       const now = Date.now();
@@ -606,7 +643,7 @@ export function Resources() {
       result = result.filter((r) => new Date(r.created_at).getTime() >= cutoff);
     }
     return result;
-  }, [resources, filter, resourceDetails, typeFilter, dateRange]);
+  }, [modeResources, filter, resourceDetails, dateRange]);
 
   // ---------------------------------------------------------------------------
   // Handlers
@@ -629,6 +666,29 @@ export function Resources() {
   );
 
   const handleCreate = useCallback(async () => {
+    // SSH mode: use host/port instead of target_url
+    if (mode === 'ssh') {
+      const host = sshHost.trim() || 'localhost';
+      const port = sshPort.trim() || '22';
+      const name = sshName.trim() || `ssh-${host}-${port}`;
+      setCreating(true);
+      setError(null);
+      try {
+        const addResult = await window.qurl.tunnels.add(`${host}:${port}`, name);
+        if (!addResult.success) { setError(addResult.error || 'Failed to create tunnel'); return; }
+        const result = await window.qurl.share.service(name, { ...createInput, label: sshName || undefined });
+        if (!result.success) { setError(result.error || 'Failed to create QURL'); return; }
+        if (result.qurl?.qurl_link) {
+          setMintedLink({ resourceId: result.qurl.resource_id, link: result.qurl.qurl_link });
+        }
+        setShowCreate(false);
+        setSshHost('localhost'); setSshPort('22'); setSshName('');
+        await fetchResources();
+      } catch (err) { setError(String(err)); }
+      finally { setCreating(false); }
+      return;
+    }
+
     if (!createInput.target_url && !pendingFile) return;
     setCreating(true);
     setError(null);
@@ -646,17 +706,25 @@ export function Resources() {
       } else {
         let targetUrl = createInput.target_url!.trim();
         if (!targetUrl.startsWith('http://') && !targetUrl.startsWith('https://')) {
-          if (targetUrl.includes('.') && !targetUrl.includes(' ')) {
+          if (targetUrl.match(/^localhost(:\d+)?/)) {
+            targetUrl = 'http://' + targetUrl;
+          } else if (targetUrl.includes('.') && !targetUrl.includes(' ')) {
             targetUrl = 'https://' + targetUrl;
           }
         }
-        result = await window.qurl.qurls.create({
-          ...createInput,
-          target_url: targetUrl,
-        } as QURLCreateInput);
+        // Use urlLocal for local URLs in HTTP mode
+        const detectResult = await window.qurl.share.detectUrl(targetUrl).catch(() => null);
+        if (detectResult?.isLocal) {
+          result = await window.qurl.share.urlLocal(targetUrl, createInput);
+        } else {
+          result = await window.qurl.qurls.create({
+            ...createInput,
+            target_url: targetUrl,
+          } as QURLCreateInput);
+        }
       }
       if (!result.success) {
-        setError(result.error || 'Failed to create resource');
+        setError(result.error || 'Failed to create');
         return;
       }
       if (result.qurl?.qurl_link) {
@@ -671,7 +739,7 @@ export function Resources() {
     } finally {
       setCreating(false);
     }
-  }, [createInput, pendingFile, fetchResources]);
+  }, [mode, createInput, pendingFile, sshHost, sshPort, sshName, fetchResources]);
 
   const handleFileDrop = useCallback(
     (files: File[]) => {
@@ -835,18 +903,18 @@ export function Resources() {
       {/* Page header                                                        */}
       {/* ================================================================== */}
       <div style={{ animation: 'fadeIn 400ms cubic-bezier(0.16, 1, 0.3, 1) both' }}>
-        <h1 className="text-xl font-semibold tracking-tight mb-1">Protected Resources</h1>
+        <h1 className="text-xl font-semibold tracking-tight mb-1">{meta.title}</h1>
         <div className="flex items-center justify-between">
           <p className="text-text-secondary text-[13px] leading-relaxed">
-            Manage your protected URLs, files, and services.
+            {meta.subtitle}
           </p>
           <button
             onClick={() => {
               if (!showCreate && qurlDefaults) {
-                const d = qurlDefaults.url;
+                const d = mode === 'files' ? qurlDefaults.file : mode === 'ssh' ? qurlDefaults.ssh : qurlDefaults.http;
                 setCreateInput({
                   target_url: '',
-                  expires_in: d.expires_in || '24h',
+                  expires_in: d.expires_in || (mode === 'files' ? '1h' : mode === 'ssh' ? '7d' : '24h'),
                   one_time_use: d.one_time_use || false,
                   max_sessions: d.max_sessions,
                   session_duration: d.session_duration,
@@ -865,7 +933,7 @@ export function Resources() {
                 : 'bg-gradient-to-r from-[#0099FF] to-[#D406B9] text-white hover:shadow-[0_0_20px_rgba(0,153,255,0.25)]'
             }`}
           >
-            {showCreate ? 'Cancel' : '+ New Resource'}
+            {showCreate ? 'Cancel' : meta.newBtn}
           </button>
         </div>
       </div>
@@ -903,63 +971,75 @@ export function Resources() {
       {/* ================================================================== */}
       {showCreate && (
         <div className="bg-surface-2 rounded-xl p-5 border border-glass-border flex flex-col gap-3 animate-in">
-          <h2 className="text-[13px] font-semibold text-text-primary">Create Protected Resource</h2>
+          <h2 className="text-[13px] font-semibold text-text-primary">{meta.createTitle}</h2>
 
-          {/* Source: URL or File */}
-          {pendingFile ? (
-            /* ── Selected file chip ── */
-            <div className="flex items-center gap-3 bg-surface-1 border border-glass-border rounded-lg px-3.5 py-2.5">
-              <svg className="w-4 h-4 text-warning shrink-0" viewBox="0 0 24 24" fill="currentColor">
-                <path d="M14 2H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V8l-6-6zm-1 2l5 5h-5V4zm-3 9v2H8v-2h2zm6 0v2h-4v-2h4zm-6 4v2H8v-2h2zm6 0v2h-4v-2h4z" />
-              </svg>
-              <span className="flex-1 text-[13px] text-text-primary font-medium truncate">
-                {pendingFile.name}
-              </span>
-              <button
-                onClick={() => {
-                  setPendingFile(null);
-                  const d = qurlDefaults?.url;
-                  setCreateInput({
-                    target_url: '',
-                    expires_in: d?.expires_in || '24h',
-                    one_time_use: d?.one_time_use || false,
-                    max_sessions: d?.max_sessions,
-                    session_duration: d?.session_duration,
-                    access_policy: d?.access_policy,
-                  });
-                }}
-                className="text-text-muted hover:text-text-secondary text-sm bg-transparent cursor-pointer shrink-0 transition-colors"
-              >
-                {'\u2715'}
-              </button>
-            </div>
-          ) : (
-            <>
-              {/* ── URL input ── */}
+          {/* Mode-specific source input */}
+          {mode === 'files' ? (
+            /* ── Files mode ── */
+            pendingFile ? (
+              <div className="flex items-center gap-3 bg-surface-1 border border-glass-border rounded-lg px-3.5 py-2.5">
+                <svg className="w-4 h-4 text-warning shrink-0" viewBox="0 0 24 24" fill="currentColor">
+                  <path d="M14 2H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V8l-6-6zm-1 2l5 5h-5V4zm-3 9v2H8v-2h2zm6 0v2h-4v-2h4zm-6 4v2H8v-2h2zm6 0v2h-4v-2h4z" />
+                </svg>
+                <span className="flex-1 text-[13px] text-text-primary font-medium truncate">{pendingFile.name}</span>
+                <button
+                  onClick={() => { setPendingFile(null); setCreateInput((p) => ({ ...p, label: undefined })); }}
+                  className="text-text-muted hover:text-text-secondary text-sm bg-transparent cursor-pointer shrink-0 transition-colors"
+                >{'\u2715'}</button>
+              </div>
+            ) : (
+              <DropZone onDrop={handleFileDrop} disabled={creating} />
+            )
+          ) : mode === 'ssh' ? (
+            /* ── SSH mode ── */
+            <div className="grid grid-cols-[2fr_1fr_2fr] gap-3">
               <div>
-                <label className="text-xs font-medium text-text-secondary mb-1 block">Target URL</label>
+                <label className="text-xs font-medium text-text-secondary mb-1 block">Host</label>
                 <input
-                  value={createInput.target_url || ''}
-                  onChange={(e) => setCreateInput((p) => ({ ...p, target_url: e.target.value }))}
-                  placeholder="https://example.com or example.com"
+                  value={sshHost}
+                  onChange={(e) => setSshHost(e.target.value)}
+                  placeholder="192.168.1.100"
                   className="w-full py-2.5 px-3.5 bg-surface-1 border border-glass-border rounded-lg text-text-primary text-[13px] font-mono placeholder:text-text-muted focus:border-accent focus:outline-none focus:ring-[3px] focus:ring-accent-dim"
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter') handleCreate();
-                  }}
                   autoFocus
                 />
               </div>
-
-              {/* ── Divider ── */}
-              <div className="flex items-center gap-3 -my-0.5">
-                <div className="flex-1 h-px bg-glass-border" />
-                <span className="text-[10px] text-text-muted uppercase tracking-widest font-medium">or</span>
-                <div className="flex-1 h-px bg-glass-border" />
+              <div>
+                <label className="text-xs font-medium text-text-secondary mb-1 block">Port</label>
+                <input
+                  type="number"
+                  value={sshPort}
+                  onChange={(e) => setSshPort(e.target.value)}
+                  placeholder="22"
+                  min={1}
+                  max={65535}
+                  className="w-full py-2.5 px-3.5 bg-surface-1 border border-glass-border rounded-lg text-text-primary text-[13px] font-mono placeholder:text-text-muted focus:border-accent focus:outline-none focus:ring-[3px] focus:ring-accent-dim"
+                />
               </div>
-
-              {/* ── File drop zone ── */}
-              <DropZone onDrop={handleFileDrop} disabled={creating} compact />
-            </>
+              <div>
+                <label className="text-xs font-medium text-text-secondary mb-1 block">
+                  Name <span className="text-text-muted font-normal">(optional)</span>
+                </label>
+                <input
+                  value={sshName}
+                  onChange={(e) => setSshName(e.target.value)}
+                  placeholder="Production bastion"
+                  className="w-full py-2.5 px-3.5 bg-surface-1 border border-glass-border rounded-lg text-text-primary text-[13px] placeholder:text-text-muted focus:border-accent focus:outline-none focus:ring-[3px] focus:ring-accent-dim"
+                />
+              </div>
+            </div>
+          ) : (
+            /* ── HTTP mode ── */
+            <div>
+              <label className="text-xs font-medium text-text-secondary mb-1 block">Service URL</label>
+              <input
+                value={createInput.target_url || ''}
+                onChange={(e) => setCreateInput((p) => ({ ...p, target_url: e.target.value }))}
+                placeholder="localhost:8080 or https://staging.internal.co"
+                className="w-full py-2.5 px-3.5 bg-surface-1 border border-glass-border rounded-lg text-text-primary text-[13px] font-mono placeholder:text-text-muted placeholder:font-sans focus:border-accent focus:outline-none focus:ring-[3px] focus:ring-accent-dim"
+                onKeyDown={(e) => { if (e.key === 'Enter') handleCreate(); }}
+                autoFocus
+              />
+            </div>
           )}
 
           {/* Label */}
@@ -972,17 +1052,22 @@ export function Resources() {
               onChange={(e) =>
                 setCreateInput((p) => ({ ...p, label: e.target.value || undefined }))
               }
-              placeholder="e.g. Internal dashboard"
+              placeholder={mode === 'files' ? 'e.g. Q3 earnings report' : mode === 'ssh' ? 'e.g. Dev server access' : 'e.g. Staging dashboard'}
               className="w-full py-2 px-3.5 bg-surface-1 border border-glass-border rounded-lg text-text-primary text-[13px] placeholder:text-text-muted focus:border-accent focus:outline-none focus:ring-[3px] focus:ring-accent-dim"
             />
+          </div>
+
+          {/* Qurl Settings */}
+          <div className="pt-1">
+            <h3 className="text-[13px] font-bold text-text-primary">Qurl Settings</h3>
           </div>
           <AccessPolicyForm value={createInput} onChange={setCreateInput} compact />
           <div className="flex justify-end pt-1">
             <button
               onClick={handleCreate}
-              disabled={creating || (!createInput.target_url && !pendingFile)}
+              disabled={creating || (mode === 'ssh' ? false : (!createInput.target_url && !pendingFile))}
               className={`bg-gradient-to-r from-[#0099FF] to-[#D406B9] text-white py-2 px-6 rounded-lg font-semibold text-[13px] transition-all duration-150 ${
-                creating || (!createInput.target_url && !pendingFile)
+                creating || (mode === 'ssh' ? false : (!createInput.target_url && !pendingFile))
                   ? 'opacity-40 cursor-not-allowed'
                   : 'opacity-100 cursor-pointer hover:shadow-[0_0_20px_rgba(0,153,255,0.25)]'
               }`}
@@ -993,7 +1078,7 @@ export function Resources() {
                   Creating...
                 </span>
               ) : (
-                'Create Resource'
+                mode === 'files' ? 'Share File' : 'Create QURL'
               )}
             </button>
           </div>
@@ -1003,7 +1088,7 @@ export function Resources() {
       {/* ================================================================== */}
       {/* Filter tabs                                                        */}
       {/* ================================================================== */}
-      {!loading && resources.length > 0 && (
+      {!loading && modeResources.length > 0 && (
         <div className="flex gap-0.5 bg-surface-2 rounded-lg p-1 border border-glass-border flex-wrap w-fit">
           {/* Status tabs */}
           {FILTER_TABS.map((tab) => {
@@ -1042,19 +1127,6 @@ export function Resources() {
           {/* Separator */}
           <div className="w-px h-5 bg-glass-border mx-0.5 self-center shrink-0" />
 
-          {/* Type filter */}
-          <FilterDropdown
-            value={typeFilter}
-            onChange={setTypeFilter}
-            options={[
-              { value: 'all', label: 'All types' },
-              { value: 'file', label: 'File' },
-              { value: 'tunneled', label: 'Tunneled' },
-              { value: 'private', label: 'Private' },
-              { value: 'public', label: 'Public' },
-            ]}
-          />
-
           {/* Date range */}
           <FilterDropdown
             value={dateRange}
@@ -1068,9 +1140,9 @@ export function Resources() {
           />
 
           {/* Clear */}
-          {(typeFilter !== 'all' || dateRange !== 'all') && (
+          {dateRange !== 'all' && (
             <button
-              onClick={() => { setTypeFilter('all'); setDateRange('all'); }}
+              onClick={() => { setDateRange('all'); }}
               className="flex items-center px-1.5 py-1 rounded-md text-[11px] text-text-muted hover:text-danger bg-transparent cursor-pointer transition-colors"
             >
               {'\u2715'}
@@ -1087,7 +1159,7 @@ export function Resources() {
           <Spinner size="md" />
           <span className="ml-2.5">Loading resources...</span>
         </div>
-      ) : resources.length === 0 && !showCreate ? (
+      ) : modeResources.length === 0 && !showCreate ? (
         <div className="text-center py-12 bg-surface-2 rounded-xl border border-glass-border">
           <svg
             className="w-10 h-10 text-text-muted mx-auto mb-3 opacity-40"
@@ -1096,9 +1168,9 @@ export function Resources() {
           >
             <path d="M12 1L3 5v6c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V5l-9-4zm0 10.99h7c-.53 4.12-3.28 7.79-7 8.94V12H5V6.3l7-3.11v8.8z" />
           </svg>
-          <p className="text-text-secondary text-[13px] font-medium mb-1">No protected resources yet</p>
+          <p className="text-text-secondary text-[13px] font-medium mb-1">{meta.emptyTitle}</p>
           <p className="text-text-muted text-[12px]">
-            Create a resource above or share something from the Share page.
+            {meta.emptyHint}
           </p>
         </div>
       ) : filteredResources.length === 0 ? (
@@ -1123,7 +1195,6 @@ export function Resources() {
       ) : (
         <div className="flex flex-col gap-2">
           {filteredResources.map((q, idx) => {
-            const typeInfo = getTypeIndicator(q.target_url);
             const isExpanded = expandedId === q.resource_id;
             const detail = resourceDetails[q.resource_id];
             const isLoadingDetail = loadingDetail === q.resource_id;
@@ -1176,13 +1247,6 @@ export function Resources() {
                       </span>
                     )}
                   </div>
-
-                  {/* Type badge */}
-                  <span
-                    className={`text-[10px] px-2 py-0.5 rounded-full uppercase font-bold tracking-wide shrink-0 ${typeInfo.bgClass} ${typeInfo.textClass}`}
-                  >
-                    {typeInfo.label}
-                  </span>
 
                   {/* Chevron */}
                   <ChevronIcon open={isExpanded} />
