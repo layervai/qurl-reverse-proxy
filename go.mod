@@ -24,7 +24,7 @@ require (
 	github.com/cloudwego/base64x v0.1.6 // indirect
 	github.com/coocood/freecache v1.2.5 // indirect
 	github.com/coreos/go-oidc/v3 v3.17.0 // indirect
-	github.com/emmansun/gmsm v0.41.0 // indirect
+	github.com/emmansun/gmsm v0.41.1 // indirect
 	github.com/fatedier/golib v0.5.1 // indirect
 	github.com/fsnotify/fsnotify v1.9.0 // indirect
 	github.com/gabriel-vasile/mimetype v1.4.12 // indirect
