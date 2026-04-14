@@ -3,6 +3,12 @@ import { AccessPolicyForm } from '../components/AccessPolicyForm';
 import { DropZone } from '../components/DropZone';
 
 // ---------------------------------------------------------------------------
+// Constants
+// ---------------------------------------------------------------------------
+
+const SSH_PREFIX_RE = /^SSH:/i;
+
+// ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
@@ -431,8 +437,8 @@ const MODE_META: Record<string, ModeMeta> = {
     emptyHint: 'Add an HTTP service resource, then mint QURL links to share secure access.',
     typeMatch: ['tunneled', 'private', 'public'],
     filterFn: (r) => {
-      if (/^SSH:/i.test(r.description ?? '')) return false;
-      return ['tunneled', 'private', 'public'].includes(getTypeIndicator(r.target_url).label);
+      if (SSH_PREFIX_RE.test(r.description ?? '')) return false;
+      return MODE_META.http.typeMatch.includes(getTypeIndicator(r.target_url).label);
     },
   },
   ssh: {
@@ -443,7 +449,7 @@ const MODE_META: Record<string, ModeMeta> = {
     emptyTitle: 'No SSH service resources yet',
     emptyHint: 'Add an SSH service resource, then mint QURL links to share secure access.',
     typeMatch: [],
-    filterFn: (r) => /^SSH:/i.test(r.description ?? ''),
+    filterFn: (r) => SSH_PREFIX_RE.test(r.description ?? ''),
   },
 };
 
@@ -540,7 +546,7 @@ export function Qurls({ mode }: QurlsProps) {
     } finally {
       setLoading(false);
     }
-  }, [meta]);
+  }, [mode]);
 
   useEffect(() => {
     fetchResources();
@@ -1048,9 +1054,9 @@ export function Qurls({ mode }: QurlsProps) {
           <div className="flex justify-end pt-1">
             <button
               onClick={handleCreate}
-              disabled={creating || (mode === 'ssh' ? false : (!createInput.target_url && !pendingFile))}
+              disabled={creating || (mode !== 'ssh' && !createInput.target_url && !pendingFile)}
               className={`bg-gradient-to-r from-[#0099FF] to-[#D406B9] text-white py-2 px-6 rounded-lg font-semibold text-[13px] transition-all duration-150 ${
-                creating || (mode === 'ssh' ? false : (!createInput.target_url && !pendingFile))
+                creating || (mode !== 'ssh' && !createInput.target_url && !pendingFile)
                   ? 'opacity-40 cursor-not-allowed'
                   : 'opacity-100 cursor-pointer hover:shadow-[0_0_20px_rgba(0,153,255,0.25)]'
               }`}
