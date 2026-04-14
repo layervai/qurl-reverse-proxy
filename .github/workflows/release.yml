@@ -122,12 +122,28 @@ jobs:
           path: artifacts
           merge-multiple: true
 
+      - name: Import GPG key
+        uses: crazy-max/ghaction-import-gpg@v7
+        with:
+          gpg_private_key: ${{ secrets.GPG_PRIVATE_KEY }}
+          passphrase: ${{ secrets.GPG_PASSPHRASE }}
+
+      - name: Generate checksums and sign
+        working-directory: artifacts
+        run: |
+          sha256sum *.tar.gz > SHA256SUMS
+          gpg --batch --yes --armor --detach-sign SHA256SUMS
+          echo "--- SHA256SUMS ---"
+          cat SHA256SUMS
+
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           generate_release_notes: true
           files: |
             artifacts/*.tar.gz
+            artifacts/SHA256SUMS
+            artifacts/SHA256SUMS.asc
             scripts/install.sh
 
   # ──────────────────────────────────────────────
@@ -178,12 +194,15 @@ jobs:
           chmod +x bin/qurl-frpc || true
           ls -la bin/
 
-      # Build the @layerv/qurl dependency (local file reference)
-      - name: Build QURL SDK
+      # Build the @layerv/qurl dependency (local file reference).
+      # desktop/package.json uses "file:../../qurl-typescript" so the SDK
+      # must be cloned one level above the workspace root.
+      - name: Checkout QURL TypeScript SDK
+        run: git clone --depth 1 https://github.com/layervai/qurl-typescript.git ../qurl-typescript
+
+      - name: Build QURL TypeScript SDK
         working-directory: ../qurl-typescript
-        if: hashFiles('../qurl-typescript/package.json') != ''
         run: npm ci && npm run build
-        continue-on-error: true
 
       - name: Sync desktop package version
         working-directory: desktop

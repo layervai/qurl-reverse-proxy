@@ -85,8 +85,8 @@ get_latest_version() {
   info "Latest version: ${VERSION}"
 }
 
-# --- Download and extract ---
-download_and_extract() {
+# --- Download tarball ---
+download_tarball() {
   TARBALL="qurl-reverse-proxy-${VERSION}-${GOOS}-${GOARCH}.tar.gz"
   DOWNLOAD_URL="https://github.com/${REPO}/releases/download/${VERSION}/${TARBALL}"
   TMPDIR=$(mktemp -d)
@@ -98,7 +98,70 @@ download_and_extract() {
   else
     wget -q -O "${TMPDIR}/${TARBALL}" "$DOWNLOAD_URL" || error "Download failed. URL: ${DOWNLOAD_URL}"
   fi
+}
 
+# --- Verify checksum ---
+verify_checksum() {
+  CHECKSUM_URL="https://github.com/${REPO}/releases/download/${VERSION}/SHA256SUMS"
+
+  info "Verifying checksum..."
+
+  # Download SHA256SUMS
+  if command -v curl >/dev/null 2>&1; then
+    curl -sSL -o "${TMPDIR}/SHA256SUMS" "$CHECKSUM_URL" 2>/dev/null
+  else
+    wget -q -O "${TMPDIR}/SHA256SUMS" "$CHECKSUM_URL" 2>/dev/null
+  fi
+
+  if [ ! -f "${TMPDIR}/SHA256SUMS" ] || [ ! -s "${TMPDIR}/SHA256SUMS" ]; then
+    info "No SHA256SUMS found in release — skipping checksum verification"
+    return 0
+  fi
+
+  # Compute hash of the downloaded tarball
+  if command -v sha256sum >/dev/null 2>&1; then
+    ACTUAL_HASH=$(sha256sum "${TMPDIR}/${TARBALL}" | awk '{print $1}')
+  elif command -v shasum >/dev/null 2>&1; then
+    ACTUAL_HASH=$(shasum -a 256 "${TMPDIR}/${TARBALL}" | awk '{print $1}')
+  else
+    info "No sha256sum or shasum available — skipping checksum verification"
+    return 0
+  fi
+
+  EXPECTED_HASH=$(grep "${TARBALL}" "${TMPDIR}/SHA256SUMS" | awk '{print $1}')
+
+  if [ -z "$EXPECTED_HASH" ]; then
+    info "Tarball not found in SHA256SUMS — skipping checksum verification"
+    return 0
+  fi
+
+  if [ "$ACTUAL_HASH" != "$EXPECTED_HASH" ]; then
+    error "Checksum mismatch! Expected ${EXPECTED_HASH}, got ${ACTUAL_HASH}. The download may be corrupted."
+  fi
+
+  success "Checksum verified"
+
+  # GPG signature verification (best-effort)
+  if command -v gpg >/dev/null 2>&1; then
+    SIGNATURE_URL="https://github.com/${REPO}/releases/download/${VERSION}/SHA256SUMS.asc"
+    if command -v curl >/dev/null 2>&1; then
+      curl -sSL -o "${TMPDIR}/SHA256SUMS.asc" "$SIGNATURE_URL" 2>/dev/null
+    else
+      wget -q -O "${TMPDIR}/SHA256SUMS.asc" "$SIGNATURE_URL" 2>/dev/null
+    fi
+
+    if [ -f "${TMPDIR}/SHA256SUMS.asc" ] && [ -s "${TMPDIR}/SHA256SUMS.asc" ]; then
+      if gpg --verify "${TMPDIR}/SHA256SUMS.asc" "${TMPDIR}/SHA256SUMS" 2>/dev/null; then
+        success "GPG signature verified"
+      else
+        info "GPG signature could not be verified (signing key may not be imported)"
+      fi
+    fi
+  fi
+}
+
+# --- Extract tarball ---
+extract_tarball() {
   info "Extracting to ${INSTALL_DIR}..."
 
   # Create install directory (may need sudo)
@@ -186,7 +249,9 @@ main() {
 
   detect_platform
   get_latest_version
-  download_and_extract
+  download_tarball
+  verify_checksum
+  extract_tarball
   create_symlink
   configure_token
   verify_installation
