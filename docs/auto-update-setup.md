@@ -92,7 +92,58 @@ Windows code signing is recommended to avoid SmartScreen warnings but is not str
 
 ---
 
-## 4. GitHub Token
+## 4. GPG Release Signing (Required)
+
+Release tarballs are accompanied by a `SHA256SUMS` file and its GPG signature (`SHA256SUMS.asc`). This allows users and the desktop updater to verify download integrity.
+
+### Steps
+
+1. **Generate a dedicated signing key** (no passphrase for CI, or with a passphrase stored as a secret)
+   ```bash
+   gpg --full-generate-key
+   # Choose: RSA (sign only), 4096 bits
+   # Name: QURL Release Signing
+   # Email: releases@layerv.ai
+   ```
+
+2. **Export the private key**
+   ```bash
+   gpg --armor --export-secret-keys "QURL Release Signing" > qurl-release-signing.asc
+   ```
+
+3. **Add GitHub repository secrets**
+
+   | Secret | Value |
+   |--------|-------|
+   | `GPG_PRIVATE_KEY` | Contents of `qurl-release-signing.asc` (ASCII-armored private key) |
+   | `GPG_PASSPHRASE` | Key passphrase (leave empty if no passphrase) |
+
+4. **Publish the public key** for users who want to verify signatures
+   ```bash
+   gpg --armor --export "QURL Release Signing"
+   ```
+   Add this to the project README or a `SECURITY.md` file so users can import it with `gpg --import`.
+
+### How verification works
+
+- **install.sh**: Automatically verifies `SHA256SUMS` on download. GPG signature check is best-effort (only if `gpg` is installed and the key is imported).
+- **Desktop app**: The sidecar updater verifies tarball SHA256 against `SHA256SUMS` before applying updates. Mismatches abort the update.
+- **Manual verification**:
+  ```bash
+  # Download release files
+  curl -LO https://github.com/layervai/qurl-reverse-proxy/releases/download/v1.2.3/SHA256SUMS
+  curl -LO https://github.com/layervai/qurl-reverse-proxy/releases/download/v1.2.3/SHA256SUMS.asc
+
+  # Verify checksums
+  sha256sum -c SHA256SUMS
+
+  # Verify GPG signature (after importing the public key)
+  gpg --verify SHA256SUMS.asc SHA256SUMS
+  ```
+
+---
+
+## 5. GitHub Token (Automatic)
 
 The `GITHUB_TOKEN` provided automatically by GitHub Actions has sufficient permissions to publish release assets to the same repository, as long as the workflow has `contents: write` permission (already configured in `release.yml`).
 
@@ -100,7 +151,7 @@ No additional token configuration is needed.
 
 ---
 
-## 5. Version Management
+## 6. Version Management
 
 The desktop app version and Git tag must stay in sync:
 
@@ -124,7 +175,7 @@ Set at build time via ldflags -- no manual step needed:
 
 ---
 
-## 6. Release Process
+## 7. Release Process
 
 1. **Tag and push**
    ```bash
@@ -149,7 +200,7 @@ Set at build time via ldflags -- no manual step needed:
 
 ---
 
-## 7. How Auto-Updates Work at Runtime
+## 8. How Auto-Updates Work at Runtime
 
 ### Desktop app update flow
 
@@ -185,7 +236,7 @@ Atomic binary swap with rollback on failure
 
 ---
 
-## 8. Testing Auto-Updates Locally
+## 9. Testing Auto-Updates Locally
 
 ### Without code signing (development)
 
@@ -231,7 +282,7 @@ shasum -a 512 "QURL Desktop-1.3.0-arm64-mac.zip" | awk '{print $1}' | xxd -r -p 
 
 ---
 
-## 9. Troubleshooting
+## 10. Troubleshooting
 
 ### "Update available" but download fails
 
@@ -261,7 +312,7 @@ This is expected. In development (`npm run dev` / `npm start`), the app falls ba
 
 ---
 
-## 10. Secrets Checklist
+## 11. Secrets Checklist
 
 All secrets are configured in: **GitHub repo > Settings > Secrets and variables > Actions**
 
@@ -272,17 +323,19 @@ All secrets are configured in: **GitHub repo > Settings > Secrets and variables 
 | `APPLE_ID` | Yes (macOS) | Apple ID for notarization |
 | `APPLE_APP_SPECIFIC_PASSWORD` | Yes (macOS) | App-specific password for notarization |
 | `APPLE_TEAM_ID` | Yes (macOS) | Apple Developer Team ID |
+| `GPG_PRIVATE_KEY` | Yes | ASCII-armored GPG private key for checksum signing |
+| `GPG_PASSPHRASE` | Yes (can be empty) | Passphrase for the GPG key |
 | `WIN_CSC_LINK` | Optional | Base64 `.pfx` Windows code signing cert |
 | `WIN_CSC_KEY_PASSWORD` | Optional | Windows cert password |
 | `GITHUB_TOKEN` | Automatic | Provided by GitHub Actions, no setup needed |
 
 ---
 
-## 11. Dependency Notes
+## 12. Dependency Notes
 
 ### `@layerv/qurl` local reference
 
-`desktop/package.json` references `"@layerv/qurl": "file:../../qurl-typescript"`. In CI, this path must resolve. The release workflow checks out the full repo and attempts to build the SDK before the desktop build step. If the SDK is published to npm in the future, update the reference to the published version.
+`desktop/package.json` references `"@layerv/qurl": "file:../../qurl-typescript"`. In CI, the release workflow clones `qurl-typescript` one level above the workspace root so this path resolves. If the SDK is published to npm in the future, update the reference to the published version and remove the `git clone` step from `release.yml`. If `qurl-typescript` becomes a private repo, add a `QURL_SDK_TOKEN` secret with read access.
 
 ### Key packages
 

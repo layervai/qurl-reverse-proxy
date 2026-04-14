@@ -1,6 +1,7 @@
 import { app } from 'electron';
 import https from 'https';
 import http from 'http';
+import crypto from 'crypto';
 import path from 'path';
 import fs from 'fs';
 import os from 'os';
@@ -339,7 +340,7 @@ export class UpdateManager {
         // Download in background if asset is available.
         if (asset) {
           try {
-            await this.downloadUpdate(asset.browser_download_url);
+            await this.downloadUpdate({ url: asset.browser_download_url, tag: latestVersion, assetName });
             tunnelUpdate.downloaded = true;
           } catch (err) {
             console.error('[updater] tunnel download failed:', (err as Error).message);
@@ -474,7 +475,7 @@ export class UpdateManager {
     });
   }
 
-  private async downloadUpdate(assetUrl: string): Promise<void> {
+  private async downloadUpdate(opts: { url: string; tag: string; assetName: string }): Promise<void> {
     if (fs.existsSync(STAGING_DIR)) {
       fs.rmSync(STAGING_DIR, { recursive: true });
     }
@@ -482,10 +483,57 @@ export class UpdateManager {
 
     const tarballPath = path.join(STAGING_DIR, 'release.tar.gz');
 
-    await this.downloadFile(assetUrl, tarballPath);
-    await this.extractTarGz(tarballPath);
+    try {
+      await this.downloadFile(opts.url, tarballPath);
+      await this.verifyChecksum(tarballPath, opts.tag, opts.assetName);
+      await this.extractTarGz(tarballPath);
+      fs.unlinkSync(tarballPath);
+    } catch (err) {
+      try { fs.rmSync(STAGING_DIR, { recursive: true, force: true }); } catch { /* ok */ }
+      throw err;
+    }
+  }
 
-    fs.unlinkSync(tarballPath);
+  /**
+   * Verify the SHA256 hash of a downloaded tarball against the release SHA256SUMS file.
+   * Skips verification gracefully if SHA256SUMS is not available (e.g. older releases).
+   */
+  private async verifyChecksum(tarballPath: string, tag: string, assetName: string): Promise<void> {
+    const sha256sumsUrl = `https://github.com/${GITHUB_REPO}/releases/download/${tag}/SHA256SUMS`;
+    const sha256sumsPath = path.join(STAGING_DIR, 'SHA256SUMS');
+
+    try {
+      await this.downloadFile(sha256sumsUrl, sha256sumsPath);
+    } catch {
+      console.log('[updater] SHA256SUMS not available — skipping checksum verification');
+      return;
+    }
+
+    const sha256sums = fs.readFileSync(sha256sumsPath, 'utf-8');
+    const expectedLine = sha256sums.split('\n').find(line => line.includes(assetName));
+
+    if (!expectedLine) {
+      console.log('[updater] asset not found in SHA256SUMS — skipping checksum verification');
+      return;
+    }
+
+    const expectedHash = expectedLine.trim().split(/\s+/)[0];
+
+    const actualHash = await new Promise<string>((resolve, reject) => {
+      const hash = crypto.createHash('sha256');
+      const stream = fs.createReadStream(tarballPath);
+      stream.on('data', (chunk) => hash.update(chunk));
+      stream.on('end', () => resolve(hash.digest('hex')));
+      stream.on('error', reject);
+    });
+
+    try { fs.unlinkSync(sha256sumsPath); } catch { /* ok */ }
+
+    if (actualHash !== expectedHash) {
+      throw new Error(`Checksum mismatch: expected ${expectedHash}, got ${actualHash}`);
+    }
+
+    console.log('[updater] checksum verified for', assetName);
   }
 
   private downloadFile(url: string, destPath: string): Promise<void> {

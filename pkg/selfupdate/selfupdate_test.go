@@ -5,6 +5,8 @@ import (
 	"bytes"
 	"compress/gzip"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -12,6 +14,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 )
 
@@ -71,6 +74,17 @@ func serveBytes(t *testing.T, w http.ResponseWriter, data []byte) {
 	if _, err := w.Write(data); err != nil {
 		t.Errorf("write response: %v", err)
 	}
+}
+
+// sha256hex returns the hex-encoded SHA256 hash of data.
+func sha256hex(data []byte) string {
+	h := sha256.Sum256(data)
+	return hex.EncodeToString(h[:])
+}
+
+// testSHA256SUMS builds a SHA256SUMS file body for the given asset name and data.
+func testSHA256SUMS(assetName string, data []byte) []byte {
+	return []byte(fmt.Sprintf("%s  %s\n", sha256hex(data), assetName))
 }
 
 func TestCheckForUpdate_Available(t *testing.T) {
@@ -279,15 +293,23 @@ func TestDownload(t *testing.T) {
 		"etc/config.yaml":  []byte("config: true"),
 		"LICENSE":           []byte("MIT"),
 	})
+	checksumData := testSHA256SUMS(assetName("v1.1.0"), tarballData)
 
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		w.Header().Set("Content-Type", "application/gzip")
-		serveBytes(t, w, tarballData)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/download":
+			w.Header().Set("Content-Type", "application/gzip")
+			serveBytes(t, w, tarballData)
+		case "/v1.1.0/SHA256SUMS":
+			serveBytes(t, w, checksumData)
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
 	}))
 	defer srv.Close()
 
 	destDir := t.TempDir()
-	u := &Updater{BinaryName: binaryName}
+	u := &Updater{BinaryName: binaryName, ChecksumBaseURL: srv.URL}
 	info := &UpdateInfo{
 		CurrentVersion: "v1.0.0",
 		LatestVersion:  "v1.1.0",
@@ -363,18 +385,84 @@ func TestDownload_MissingBinary(t *testing.T) {
 	tarballData := testTarball(t, map[string][]byte{
 		"some-other-file": []byte("not the binary"),
 	})
+	checksumData := testSHA256SUMS(assetName("v1.1.0"), tarballData)
 
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		serveBytes(t, w, tarballData)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/download":
+			serveBytes(t, w, tarballData)
+		case "/v1.1.0/SHA256SUMS":
+			serveBytes(t, w, checksumData)
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
 	}))
 	defer srv.Close()
 
-	u := &Updater{BinaryName: "qurl-frpc"}
-	info := &UpdateInfo{Available: true, AssetURL: srv.URL}
+	u := &Updater{BinaryName: "qurl-frpc", ChecksumBaseURL: srv.URL}
+	info := &UpdateInfo{Available: true, LatestVersion: "v1.1.0", AssetURL: srv.URL + "/download"}
 
 	_, err := u.Download(context.Background(), info, t.TempDir())
 	if err == nil {
 		t.Error("expected error when binary is missing from tarball")
+	}
+}
+
+func TestDownload_ChecksumMismatch(t *testing.T) {
+	tarballData := testTarball(t, map[string][]byte{
+		"qurl-frpc": []byte("binary"),
+	})
+	// Serve a SHA256SUMS with a wrong hash.
+	badChecksum := []byte(fmt.Sprintf("%s  %s\n", "0000000000000000000000000000000000000000000000000000000000000000", assetName("v1.1.0")))
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/download":
+			serveBytes(t, w, tarballData)
+		case "/v1.1.0/SHA256SUMS":
+			serveBytes(t, w, badChecksum)
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer srv.Close()
+
+	u := &Updater{BinaryName: "qurl-frpc", ChecksumBaseURL: srv.URL}
+	info := &UpdateInfo{Available: true, LatestVersion: "v1.1.0", AssetURL: srv.URL + "/download"}
+
+	_, err := u.Download(context.Background(), info, t.TempDir())
+	if err == nil {
+		t.Fatal("expected error for checksum mismatch")
+	}
+	if !strings.Contains(err.Error(), "checksum mismatch") {
+		t.Errorf("error should mention checksum mismatch, got: %v", err)
+	}
+}
+
+func TestDownload_ChecksumUnavailable(t *testing.T) {
+	tarballData := testTarball(t, map[string][]byte{
+		"qurl-frpc": []byte("binary"),
+	})
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/download":
+			serveBytes(t, w, tarballData)
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer srv.Close()
+
+	u := &Updater{BinaryName: "qurl-frpc", ChecksumBaseURL: srv.URL}
+	info := &UpdateInfo{Available: true, LatestVersion: "v1.1.0", AssetURL: srv.URL + "/download"}
+
+	_, err := u.Download(context.Background(), info, t.TempDir())
+	if err == nil {
+		t.Fatal("expected error when SHA256SUMS is not available")
+	}
+	if !strings.Contains(err.Error(), "SHA256SUMS") {
+		t.Errorf("error should mention SHA256SUMS, got: %v", err)
 	}
 }
 
@@ -628,16 +716,14 @@ func TestEndToEnd_CheckDownloadApply(t *testing.T) {
 
 	// Create a test tarball.
 	tarballData := testTarball(t, map[string][]byte{
-		binaryName:          []byte("updated-binary-v1.1.0"),
-		"sdk/nhp-agent.so":  []byte("updated-sdk-v1.1.0"),
+		binaryName:         []byte("updated-binary-v1.1.0"),
+		"sdk/nhp-agent.so": []byte("updated-sdk-v1.1.0"),
 	})
+	checksumData := testSHA256SUMS(assetName("v1.1.0"), tarballData)
 
-	// Serve both the API and the tarball.
+	// Declare release before the server so the handler closure captures it.
 	assetPath := "/download/release.tar.gz"
-	release := testRelease("v1.1.0", asset{
-		Name:               assetName("v1.1.0"),
-		BrowserDownloadURL: "", // will be set below
-	})
+	var release releaseResponse
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
@@ -645,25 +731,18 @@ func TestEndToEnd_CheckDownloadApply(t *testing.T) {
 			serveJSON(t, w, release)
 		case assetPath:
 			serveBytes(t, w, tarballData)
+		case "/v1.1.0/SHA256SUMS":
+			serveBytes(t, w, checksumData)
 		default:
 			w.WriteHeader(http.StatusNotFound)
 		}
 	}))
 	defer srv.Close()
 
-	// Set the asset URL now that we have the server URL.
-	release.Assets[0].BrowserDownloadURL = srv.URL + assetPath
-
-	// Re-register handler with updated release.
-	srv.Config.Handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		switch r.URL.Path {
-		case "/api":
-			serveJSON(t, w, release)
-		case assetPath:
-			serveBytes(t, w, tarballData)
-		default:
-			w.WriteHeader(http.StatusNotFound)
-		}
+	// Populate release now that srv.URL is known.
+	release = testRelease("v1.1.0", asset{
+		Name:               assetName("v1.1.0"),
+		BrowserDownloadURL: srv.URL + assetPath,
 	})
 
 	// Setup install directory with an existing binary.
@@ -681,8 +760,9 @@ func TestEndToEnd_CheckDownloadApply(t *testing.T) {
 
 	ctx := context.Background()
 	u := &Updater{
-		APIEndpoint: srv.URL + "/api",
-		BinaryName:  binaryName,
+		APIEndpoint:     srv.URL + "/api",
+		ChecksumBaseURL: srv.URL,
+		BinaryName:      binaryName,
 	}
 
 	// Step 1: Check for update.
