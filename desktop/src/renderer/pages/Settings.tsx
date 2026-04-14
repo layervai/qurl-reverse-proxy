@@ -41,7 +41,7 @@ function optionsToDefaults(o: Partial<QURLCreateInput>): ResourceTypeDefaults {
 
 export function Settings() {
   const [autoStart, setAutoStart] = useState(false);
-  const [sidecarRunning, setSidecarRunning] = useState(false);
+  const [sidecarState, setSidecarState] = useState<'connected' | 'reconnecting' | 'disconnected'>('disconnected');
   const [isSignedIn, setIsSignedIn] = useState(false);
 
   // QURL defaults
@@ -54,7 +54,8 @@ export function Settings() {
 
   useEffect(() => {
     window.qurl.sidecar.status().then((status) => {
-      setSidecarRunning(status.running);
+      const state = status.connectionState || (status.running ? 'running' : 'disconnected');
+      setSidecarState(state === 'running' ? 'connected' : state === 'reconnecting' ? 'reconnecting' : 'disconnected');
     });
 
     window.qurl.auth.status().then((status) => {
@@ -249,7 +250,7 @@ export function Settings() {
       <div className="flex items-center justify-between bg-surface-2 rounded-xl p-4 border border-glass-border">
         <div>
           <div className="font-semibold text-[13px] mb-1">Tunnel Status</div>
-          <StatusBadge status={sidecarRunning ? 'connected' : 'disconnected'} />
+          <StatusBadge status={sidecarState} />
         </div>
         <span className="font-mono text-xs text-text-muted">
           qurl-frpc

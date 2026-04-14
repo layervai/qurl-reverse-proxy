@@ -12,6 +12,12 @@ contextBridge.exposeInMainWorld('qurl', {
     stop: () => ipcRenderer.invoke('sidecar:stop'),
     status: () => ipcRenderer.invoke('sidecar:status'),
     logs: () => ipcRenderer.invoke('sidecar:logs'),
+    onStateChange: (callback: (state: string) => void) => {
+      ipcRenderer.on('sidecar:stateChange', (_event, state) => callback(state));
+    },
+    removeStateListener: () => {
+      ipcRenderer.removeAllListeners('sidecar:stateChange');
+    },
   },
   tunnels: {
     list: () => ipcRenderer.invoke('tunnels:list'),

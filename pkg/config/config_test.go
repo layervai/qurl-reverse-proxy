@@ -362,6 +362,65 @@ routes:
 	}
 }
 
+func TestLoad_TransportDefaults(t *testing.T) {
+	yaml := `
+server:
+  addr: example.com
+routes:
+  - name: web
+    type: frp_http
+    local_port: 80
+    subdomain: app
+`
+	cfg, err := Load(writeConfig(t, yaml))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cfg.Server.Keepalive != 60 {
+		t.Errorf("default keepalive = %d, want 60", cfg.Server.Keepalive)
+	}
+	if cfg.Server.DialTimeout != 10 {
+		t.Errorf("default dial_timeout = %d, want 10", cfg.Server.DialTimeout)
+	}
+	if cfg.Server.LoginFailExit == nil {
+		t.Fatal("default login_fail_exit should not be nil")
+	}
+	if *cfg.Server.LoginFailExit != false {
+		t.Errorf("default login_fail_exit = %v, want false", *cfg.Server.LoginFailExit)
+	}
+}
+
+func TestLoad_TransportCustom(t *testing.T) {
+	yaml := `
+server:
+  addr: example.com
+  keepalive: 30
+  dial_timeout: 5
+  login_fail_exit: true
+routes:
+  - name: web
+    type: frp_http
+    local_port: 80
+    subdomain: app
+`
+	cfg, err := Load(writeConfig(t, yaml))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cfg.Server.Keepalive != 30 {
+		t.Errorf("keepalive = %d, want 30", cfg.Server.Keepalive)
+	}
+	if cfg.Server.DialTimeout != 5 {
+		t.Errorf("dial_timeout = %d, want 5", cfg.Server.DialTimeout)
+	}
+	if cfg.Server.LoginFailExit == nil {
+		t.Fatal("login_fail_exit should not be nil")
+	}
+	if *cfg.Server.LoginFailExit != true {
+		t.Errorf("login_fail_exit = %v, want true", *cfg.Server.LoginFailExit)
+	}
+}
+
 func TestLoad_CustomDomainsValid(t *testing.T) {
 	yaml := `
 server:

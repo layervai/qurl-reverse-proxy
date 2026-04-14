@@ -1,4 +1,4 @@
-import { ipcMain, dialog, app } from 'electron';
+import { ipcMain, dialog, app, BrowserWindow } from 'electron';
 import { SidecarManager } from './sidecar';
 import { FileServer } from './file-server';
 import { getClient, clearClient, apiRequest } from './qurl-api';
@@ -256,6 +256,13 @@ export function setupIpcHandlers(): void {
   // Ensure the built-in qurl-files route exists on startup
   sidecar.ensureFilesRoute();
 
+  // Push connection state changes to all renderer windows
+  sidecar.setStateChangeCallback((state) => {
+    for (const win of BrowserWindow.getAllWindows()) {
+      win.webContents.send('sidecar:stateChange', state);
+    }
+  });
+
   // --- Auth ---
 
   ipcMain.handle('auth:signIn', async () => {
@@ -317,8 +324,13 @@ export function setupIpcHandlers(): void {
     }
   });
 
-  ipcMain.handle('sidecar:status', () => {
-    return sidecar.getStatus();
+  ipcMain.handle('sidecar:status', async () => {
+    const status = sidecar.getStatus();
+    // Enrich with live admin API state when process is running
+    if (status.running) {
+      status.connectionState = await sidecar.getConnectionState();
+    }
+    return status;
   });
 
   ipcMain.handle('sidecar:logs', () => {

@@ -9,10 +9,13 @@ const ADMIN_HOST = '127.0.0.1';
 const CONFIG_DIR = path.join(os.homedir(), '.config', 'qurl');
 const CONFIG_PATH = path.join(CONFIG_DIR, 'qurl-proxy.yaml');
 
-interface SidecarStatus {
+export type ConnectionState = 'running' | 'reconnecting' | 'disconnected';
+
+export interface SidecarStatus {
   running: boolean;
   pid: number | null;
   uptime: number | null;
+  connectionState: ConnectionState;
 }
 
 export class SidecarManager {
@@ -21,6 +24,17 @@ export class SidecarManager {
   private startedAt: number | null = null;
   private logs: string[] = [];
   private logPath: string | null = null;
+
+  // Auto-restart state
+  private restartAttempts = 0;
+  private restartTimer: ReturnType<typeof setTimeout> | null = null;
+  private intentionalStop = false;
+  private cachedState: ConnectionState = 'disconnected';
+  private onStateChange?: (state: ConnectionState) => void;
+
+  private readonly MAX_RESTART_ATTEMPTS = 10;
+  private readonly INITIAL_RESTART_DELAY = 2000;   // 2s
+  private readonly MAX_RESTART_DELAY = 60000;       // 60s
 
   constructor(binaryPath?: string) {
     this.binaryPath = binaryPath ?? this.resolveBinaryPath();
@@ -60,6 +74,19 @@ export class SidecarManager {
   }
 
   /**
+   * Register a callback for connection state changes.
+   * Used by the IPC layer to push state updates to the renderer.
+   */
+  setStateChangeCallback(cb: (state: ConnectionState) => void): void {
+    this.onStateChange = cb;
+  }
+
+  private emitState(state: ConnectionState): void {
+    this.cachedState = state;
+    this.onStateChange?.(state);
+  }
+
+  /**
    * Ensure the config directory and default config file exist.
    * Call this before running any qurl-frpc CLI commands that need the config.
    */
@@ -75,6 +102,14 @@ export class SidecarManager {
   async start(): Promise<void> {
     if (this.process && !this.process.killed) {
       throw new Error('Sidecar is already running');
+    }
+
+    // Reset auto-restart state on explicit start
+    this.intentionalStop = false;
+    this.restartAttempts = 0;
+    if (this.restartTimer) {
+      clearTimeout(this.restartTimer);
+      this.restartTimer = null;
     }
 
     // Kill any orphaned frpc processes holding the admin port
@@ -138,12 +173,17 @@ export class SidecarManager {
               `qurl-frpc exited with code ${code}${lastLogs ? '\n' + lastLogs : ''}`
             )));
           }
+          // Auto-restart on unexpected exit
+          if (!this.intentionalStop) {
+            this.scheduleRestart();
+          }
         });
 
         // If still running after 2.5s, consider it started
         setTimeout(() => {
           settle(() => {
             if (this.process && !this.process.killed) {
+              this.emitState('running');
               resolve();
             } else {
               reject(new Error('qurl-frpc exited immediately'));
@@ -156,10 +196,58 @@ export class SidecarManager {
     });
   }
 
+  /**
+   * Schedule an auto-restart with exponential backoff.
+   * Gives up after MAX_RESTART_ATTEMPTS to avoid infinite spinning
+   * (e.g., if the binary is missing or config is permanently broken).
+   */
+  private scheduleRestart(): void {
+    if (this.restartAttempts >= this.MAX_RESTART_ATTEMPTS) {
+      console.error(`[sidecar] auto-restart failed after ${this.MAX_RESTART_ATTEMPTS} attempts, giving up`);
+      this.emitState('disconnected');
+      return;
+    }
+
+    this.emitState('reconnecting');
+
+    const delay = Math.min(
+      this.INITIAL_RESTART_DELAY * Math.pow(2, this.restartAttempts),
+      this.MAX_RESTART_DELAY,
+    );
+    this.restartAttempts++;
+
+    console.log(`[sidecar] auto-restart attempt ${this.restartAttempts}/${this.MAX_RESTART_ATTEMPTS} in ${delay}ms`);
+
+    this.restartTimer = setTimeout(async () => {
+      this.restartTimer = null;
+      try {
+        // Temporarily mark as non-intentional so the exit handler doesn't
+        // interfere if start() itself fails synchronously.
+        this.intentionalStop = false;
+        await this.start();
+        // start() succeeded — restartAttempts already reset inside start()
+      } catch (err) {
+        console.error('[sidecar] auto-restart failed:', (err as Error).message);
+        // Retry unless stop was called during the attempt
+        if (!this.intentionalStop) {
+          this.scheduleRestart();
+        }
+      }
+    }, delay);
+  }
+
   async stop(): Promise<void> {
+    // Mark intentional so auto-restart doesn't kick in
+    this.intentionalStop = true;
+    if (this.restartTimer) {
+      clearTimeout(this.restartTimer);
+      this.restartTimer = null;
+    }
+
     if (!this.process || this.process.killed) {
       this.process = null;
       this.startedAt = null;
+      this.emitState('disconnected');
       return;
     }
 
@@ -172,6 +260,7 @@ export class SidecarManager {
         if (pid) { try { process.kill(pid, 'SIGKILL'); } catch { /* already dead */ } }
         this.process = null;
         this.startedAt = null;
+        this.emitState('disconnected');
         resolve();
       }, 5000);
 
@@ -179,6 +268,7 @@ export class SidecarManager {
         clearTimeout(forceKillTimer);
         this.process = null;
         this.startedAt = null;
+        this.emitState('disconnected');
         resolve();
       });
 
@@ -206,7 +296,29 @@ export class SidecarManager {
       running,
       pid: running ? this.process!.pid ?? null : null,
       uptime: running && this.startedAt ? Date.now() - this.startedAt : null,
+      connectionState: this.cachedState,
     };
+  }
+
+  /**
+   * Query the FRP admin API to determine the actual tunnel connection state.
+   * This distinguishes "process alive but server unreachable" from "truly connected".
+   */
+  async getConnectionState(): Promise<ConnectionState> {
+    if (this.restartTimer) return 'reconnecting';
+    if (!this.isRunning()) return 'disconnected';
+
+    try {
+      const status = await this.getAdminStatus() as Record<string, Array<{ status: string }>>;
+      const allProxies = Object.values(status).flat();
+      if (allProxies.length === 0) return 'reconnecting';
+      const hasRunning = allProxies.some(p => p.status === 'running');
+      if (hasRunning) return 'running';
+      return 'reconnecting';
+    } catch {
+      // Admin API not reachable yet (startup) — process is alive so it's reconnecting
+      return this.isRunning() ? 'reconnecting' : 'disconnected';
+    }
   }
 
   getLogs(): string[] {

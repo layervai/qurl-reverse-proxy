@@ -24,6 +24,11 @@ func GenerateFRPClientConfig(cfg *Config, machineID string) (*v1.ClientCommonCon
 		common.Transport.Protocol = cfg.Server.Protocol
 	}
 
+	// Reconnection resilience: prevent exit on login failure, tune keepalive.
+	common.LoginFailExit = cfg.Server.LoginFailExit
+	common.Transport.DialServerKeepAlive = int64(cfg.Server.Keepalive)
+	common.Transport.DialServerTimeout = int64(cfg.Server.DialTimeout)
+
 	proxies := make([]v1.ProxyConfigurer, 0, len(cfg.Routes))
 	for _, route := range cfg.Routes {
 		pc, err := routeToProxy(route, machineID)

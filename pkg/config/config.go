@@ -26,6 +26,11 @@ type ServerConfig struct {
 	Token        string `yaml:"token,omitempty"`
 	Protocol     string `yaml:"protocol,omitempty"`      // tcp, kcp, quic, websocket
 	PublicDomain string `yaml:"public_domain,omitempty"` // vhost domain for public URLs (e.g., qurl.site)
+
+	// Transport tuning for reconnection resilience.
+	Keepalive     int   `yaml:"keepalive,omitempty"`        // TCP keepalive probe interval in seconds (default: 60)
+	DialTimeout   int   `yaml:"dial_timeout,omitempty"`     // Server connection timeout in seconds (default: 10)
+	LoginFailExit *bool `yaml:"login_fail_exit,omitempty"`  // Exit on initial login failure (default: false)
 }
 
 // NHPConfig holds Network Hiding Protocol settings.
@@ -124,6 +129,18 @@ func applyDefaults(cfg *Config) {
 	}
 	if cfg.Server.PublicDomain == "" {
 		cfg.Server.PublicDomain = "qurl.site"
+	}
+	// TCP keepalive: 60s detects dead servers much faster than FRP's 7200s (2hr) default.
+	if cfg.Server.Keepalive == 0 {
+		cfg.Server.Keepalive = 60
+	}
+	if cfg.Server.DialTimeout == 0 {
+		cfg.Server.DialTimeout = 10
+	}
+	// LoginFailExit=false lets FRP retry indefinitely instead of exiting on first failure.
+	if cfg.Server.LoginFailExit == nil {
+		f := false
+		cfg.Server.LoginFailExit = &f
 	}
 	for i := range cfg.Routes {
 		if cfg.Routes[i].LocalIP == "" {

@@ -2,7 +2,9 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"os/signal"
@@ -200,16 +202,14 @@ func startService(
 		go runHeartbeat(ctx, apiClient, machineID)
 	}
 
-	shouldGracefulClose := cfg.Transport.Protocol == "kcp" || cfg.Transport.Protocol == "quic"
-	if shouldGracefulClose {
-		go func() {
-			ch := make(chan os.Signal, 1)
-			signal.Notify(ch, syscall.SIGINT, syscall.SIGTERM)
-			<-ch
-			cancel()
-			svr.GracefulClose(500 * time.Millisecond)
-		}()
-	}
+	// Graceful shutdown on SIGINT/SIGTERM for all transport protocols.
+	go func() {
+		ch := make(chan os.Signal, 1)
+		signal.Notify(ch, syscall.SIGINT, syscall.SIGTERM)
+		<-ch
+		cancel()
+		svr.GracefulClose(500 * time.Millisecond)
+	}()
 	return svr.Run(ctx)
 }
 
@@ -234,13 +234,62 @@ func runHeartbeat(ctx context.Context, client *apiclient.Client, machineID strin
 
 func sendHeartbeat(ctx context.Context, client *apiclient.Client, machineID string, startTime time.Time) {
 	uptime := int64(time.Since(startTime).Seconds())
+	status := probeAdminStatus()
 	if err := client.Heartbeat(ctx, &apiclient.HeartbeatRequest{
 		ConnectorID: machineID,
 		MachineID:   machineID,
 		Uptime:      uptime,
+		Status:      status,
 	}); err != nil {
 		log.Warnf("heartbeat failed: %v", err)
 	}
+}
+
+// probeAdminStatus queries the local FRP admin API to determine tunnel connection state.
+// Returns "connected" if any proxy is running, "reconnecting" if proxies exist but none
+// are running, or "starting" if the admin API is not yet reachable.
+func probeAdminStatus() string {
+	adminURL := fmt.Sprintf("http://%s:%d/api/status", "127.0.0.1", 7400)
+	httpClient := &http.Client{Timeout: 2 * time.Second}
+	req, err := http.NewRequest("GET", adminURL, nil)
+	if err != nil {
+		return "starting"
+	}
+	req.SetBasicAuth("admin", getMachineID())
+
+	resp, err := httpClient.Do(req)
+	if err != nil {
+		return "starting"
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "starting"
+	}
+
+	// FRP admin API returns {"tcp": [...], "http": [...], ...} where each proxy
+	// has a "status" field of "running", "new", "wait start", "check failed", etc.
+	var statusMap map[string][]struct {
+		Status string `json:"status"`
+	}
+	if err := json.Unmarshal(body, &statusMap); err != nil {
+		return "starting"
+	}
+
+	hasProxy := false
+	for _, proxies := range statusMap {
+		for _, p := range proxies {
+			hasProxy = true
+			if p.Status == "running" {
+				return "connected"
+			}
+		}
+	}
+	if hasProxy {
+		return "reconnecting"
+	}
+	return "starting"
 }
 
 // startFRPLegacy delegates to FRP's built-in Cobra for legacy TOML configs.

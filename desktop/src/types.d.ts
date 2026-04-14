@@ -20,6 +20,7 @@ interface SidecarStatus {
   running: boolean;
   pid: number | null;
   uptime: number | null;
+  connectionState: 'running' | 'reconnecting' | 'disconnected';
 }
 
 interface ShareInfo {
@@ -191,6 +192,8 @@ interface QUrlBridge {
     stop: () => Promise<IpcResult>;
     status: () => Promise<SidecarStatus>;
     logs: () => Promise<SidecarLogsResult>;
+    onStateChange: (callback: (state: string) => void) => void;
+    removeStateListener: () => void;
   };
   tunnels: {
     list: () => Promise<TunnelService[]>;
