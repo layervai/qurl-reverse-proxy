@@ -40,9 +40,9 @@ function NavIcon({ path, size = 18 }: { path: string; size?: number }) {
 function renderPage(page: Page, navigateTo: (p: Page) => void, isGuest: boolean) {
   switch (page) {
     case 'home': return <Home navigateTo={navigateTo} isGuest={isGuest} />;
-    case 'qurls-files': return <Qurls mode="files" />;
-    case 'qurls-http': return <Qurls mode="http" />;
-    case 'qurls-ssh': return <Qurls mode="ssh" />;
+    case 'qurls-files': return <Qurls key="files" mode="files" />;
+    case 'qurls-http': return <Qurls key="http" mode="http" />;
+    case 'qurls-ssh': return <Qurls key="ssh" mode="ssh" />;
     case 'settings': return <Settings />;
   }
 }

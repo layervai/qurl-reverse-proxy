@@ -19,6 +19,10 @@ contextBridge.exposeInMainWorld('qurl', {
     remove: (name: string) => ipcRenderer.invoke('tunnels:remove', name),
     toggle: (name: string, enabled: boolean) => ipcRenderer.invoke('tunnels:toggle', name, enabled),
   },
+  resources: {
+    create: (input: ResourceCreateInput) => ipcRenderer.invoke('resources:create', input),
+    list: () => ipcRenderer.invoke('resources:list'),
+  },
   share: {
     file: (filePath: string, name: string, options?: Partial<QURLCreateInput>) =>
       ipcRenderer.invoke('share:file', filePath, name, options),
@@ -28,6 +32,8 @@ contextBridge.exposeInMainWorld('qurl', {
       ipcRenderer.invoke('share:urlLocal', targetUrl, options),
     service: (serviceName: string, options?: Partial<QURLCreateInput>) =>
       ipcRenderer.invoke('share:service', serviceName, options),
+    setupFile: (filePath: string, name: string) =>
+      ipcRenderer.invoke('share:setupFile', filePath, name),
     stop: (id: string) => ipcRenderer.invoke('share:stop', id),
     list: () => ipcRenderer.invoke('shares:list'),
     detectUrl: (url: string) => ipcRenderer.invoke('share:detectUrl', url),
