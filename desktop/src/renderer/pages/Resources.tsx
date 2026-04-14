@@ -105,9 +105,9 @@ function getEffectiveStyle(state: EffectiveState): EffectiveStyle {
       };
     case 'dormant':
       return {
-        dotClass: 'bg-warning',
-        textClass: 'text-warning',
-        label: 'No active links',
+        dotClass: 'bg-success',
+        textClass: 'text-success',
+        label: 'Active',
         borderClass: 'border-glass-border',
         glowClass: '',
       };
@@ -126,7 +126,7 @@ function getEffectiveStyle(state: EffectiveState): EffectiveStyle {
 // Filter types
 // ---------------------------------------------------------------------------
 
-type FilterTab = 'active' | 'no-active-qurls' | 'revoked' | 'all';
+type FilterTab = 'active' | 'revoked' | 'all';
 
 const FILTER_TABS: {
   id: FilterTab;
@@ -143,14 +143,6 @@ const FILTER_TABS: {
     activeBadgeClass: 'bg-success-dim text-success',
     emptyTitle: 'No active resources',
     emptyHint: 'Create a resource above to get started.',
-  },
-  {
-    id: 'no-active-qurls',
-    label: 'No Active QURLs',
-    dotClass: 'bg-warning',
-    activeBadgeClass: 'bg-warning-dim text-warning',
-    emptyTitle: 'All resources have active links',
-    emptyHint: 'Resources appear here when none of their QURL links are active.',
   },
   {
     id: 'revoked',
@@ -612,29 +604,21 @@ export function Qurls({ mode }: QurlsProps) {
       pool = pool.filter((r) => new Date(r.created_at).getTime() >= cutoff);
     }
     let active = 0;
-    let noActiveQurls = 0;
     let revoked = 0;
     for (const r of pool) {
       if (r.status === 'revoked') {
         revoked++;
       } else {
         active++;
-        const hasActiveQurl = (r.qurls || []).some((q) => q.status === 'active');
-        if (!hasActiveQurl) noActiveQurls++;
       }
     }
-    return { active, 'no-active-qurls': noActiveQurls, revoked, all: pool.length };
+    return { active, revoked, all: pool.length };
   }, [modeResources, dateRange]);
 
   const filteredResources = useMemo(() => {
     let result: ResourceDetail[];
     if (filter === 'active') {
       result = modeResources.filter((r) => r.status !== 'revoked');
-    } else if (filter === 'no-active-qurls') {
-      result = modeResources.filter((r) => {
-        if (r.status === 'revoked') return false;
-        return !(r.qurls || []).some((q) => q.status === 'active');
-      });
     } else if (filter === 'revoked') {
       result = modeResources.filter((r) => r.status === 'revoked');
     } else {
@@ -1137,6 +1121,7 @@ export function Qurls({ mode }: QurlsProps) {
               {'\u2715'}
             </button>
           )}
+
         </div>
       )}
 
@@ -1209,10 +1194,8 @@ export function Qurls({ mode }: QurlsProps) {
               >
                 {/* Left accent bar */}
                 <div className={`absolute left-0 top-0 bottom-0 w-[3px] ${
-                  effectiveState === 'sharing' ? 'bg-success'
-                    : effectiveState === 'dormant' ? 'bg-warning'
-                    : effectiveState === 'revoked' ? 'bg-danger'
-                    : 'bg-transparent'
+                  effectiveState === 'revoked' ? 'bg-danger'
+                    : 'bg-success'
                 }`} />
 
                 {/* ---- Collapsed card header ---- */}
@@ -1282,18 +1265,10 @@ export function Qurls({ mode }: QurlsProps) {
                       </div>
                     )}
 
-                    {/* Dormant state banner — shown when resource is active but has no usable links */}
+                    {/* Hint when resource is active but has no usable links */}
                     {detail && q.status === 'active' && !detail.qurls.some((t) => t.status === 'active') && (
-                      <div className="mx-5 mb-3 flex items-start gap-2.5 py-2.5 px-3.5 rounded-lg bg-warning-dim border border-[rgba(245,158,11,0.15)]">
-                        <svg className="w-4 h-4 text-warning shrink-0 mt-0.5" viewBox="0 0 24 24" fill="currentColor">
-                          <path d="M1 21h22L12 2 1 21zm12-3h-2v-2h2v2zm0-4h-2v-4h2v4z" />
-                        </svg>
-                        <div>
-                          <span className="text-[12px] text-warning font-medium block">No active access links</span>
-                          <span className="text-[11px] text-text-muted block mt-0.5">
-                            All links for this resource are expired or revoked. Mint a new link to share it again.
-                          </span>
-                        </div>
+                      <div className="mx-5 mb-3 flex items-center gap-2 py-2 px-3.5 rounded-lg bg-surface-1 border border-glass-border text-[11px] text-text-muted">
+                        No active access links — mint a new link to share this resource.
                       </div>
                     )}
 

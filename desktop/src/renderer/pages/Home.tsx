@@ -86,7 +86,7 @@ function CreatedLinkModal({
             onClick={() => { onClose(); onViewResources(); }}
             className="text-accent hover:underline cursor-pointer bg-transparent border-none p-0 font-inherit text-[12px]"
           >
-            Qurls tab
+            Resources tab
           </button>
           , where you can mint additional access links to the same target file or URL.
         </p>
@@ -214,7 +214,7 @@ export function Home({ navigateTo, isGuest }: HomeProps) {
   const [imagePreview, setImagePreview] = useState<string | null>(null);
 
   // --- Recent resources ---
-  const [recentResources, setRecentResources] = useState<QURLInfo[]>([]);
+  const [recentResources, setRecentResources] = useState<ResourceDetail[]>([]);
 
   // --- Tunnel status (debounced) ---
   const stableStatusRef = useRef<TunnelState | null>(null);
@@ -234,10 +234,10 @@ export function Home({ navigateTo, isGuest }: HomeProps) {
     window.qurl.tunnels.list().then((list) => setServiceCount(list.length)).catch(() => {});
 
     if (!isGuest) {
-      window.qurl.qurls.list().then((result) => {
-        if (result.success && result.qurls) {
-          setResourceCount(result.qurls.filter((r) => r.status === 'active').length);
-          setRecentResources(result.qurls.slice(0, 5));
+      window.qurl.resources.list().then((result) => {
+        if (result.success && result.resources) {
+          setResourceCount(result.resources.filter((r: { status: string }) => r.status === 'active').length);
+          setRecentResources(result.resources.slice(0, 5));
         }
       }).catch(() => {});
     }
@@ -441,10 +441,10 @@ export function Home({ navigateTo, isGuest }: HomeProps) {
 
       {/* ── Status cards ── */}
       <div className="grid grid-cols-2 lg:grid-cols-3 gap-3">
-        {/* Qurls count */}
+        {/* Resources count */}
         <StatCard
           icon="M12 1L3 5v6c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V5l-9-4zm0 10.99h7c-.53 4.12-3.28 7.79-7 8.94V12H5V6.3l7-3.11v8.8z"
-          label="Qurls"
+          label="Resources"
           value={isGuest ? '--' : resourceCount}
           accent="purple"
           sub={isGuest ? 'Sign in' : 'protected'}
@@ -787,7 +787,7 @@ export function Home({ navigateTo, isGuest }: HomeProps) {
           <div className="flex items-center justify-between mb-3">
             <div className="flex items-center gap-2">
               <div className="w-1 h-4 rounded-full bg-gradient-to-b from-[#0099FF] to-[#D406B9]" />
-              <h2 className="text-sm font-semibold text-text-secondary">Recent Qurls</h2>
+              <h2 className="text-sm font-semibold text-text-secondary">Recent Resources</h2>
             </div>
             <button
               onClick={() => navigateTo('qurls-files')}
@@ -806,9 +806,9 @@ export function Home({ navigateTo, isGuest }: HomeProps) {
                 <span className={`w-2 h-2 rounded-full shrink-0 ${r.status === 'active' ? 'bg-success shadow-[0_0_6px_var(--color-success)]' : r.status === 'revoked' ? 'bg-danger' : 'bg-text-muted'}`} />
                 <div className="flex flex-col gap-0.5 min-w-0 flex-1">
                   <span className="text-[13px] font-medium text-text-primary truncate">
-                    {r.label || r.target_url}
+                    {r.description || r.target_url}
                   </span>
-                  {r.label && (
+                  {r.description && (
                     <span className="text-[10px] text-text-muted font-mono truncate">{r.target_url}</span>
                   )}
                 </div>

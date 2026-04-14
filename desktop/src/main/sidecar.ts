@@ -34,10 +34,15 @@ export class SidecarManager {
   private stateCacheTime = 0;
   private onStateChange?: (state: ConnectionState) => void;
   private adminAuthCache: string | null = null;
+  private connectionPollTimer: ReturnType<typeof setTimeout> | null = null;
+  private connectionPollAttempts = 0;
 
   private readonly MAX_RESTART_ATTEMPTS = 10;
   private readonly INITIAL_RESTART_DELAY = 2000;
   private readonly MAX_RESTART_DELAY = 60000;
+  private readonly INITIAL_POLL_INTERVAL = 2000;   // 2s initial poll
+  private readonly MAX_POLL_INTERVAL = 30000;       // 30s max poll backoff
+  private readonly CONNECTED_POLL_INTERVAL = 10000; // 10s when connected
 
   constructor(binaryPath?: string) {
     this.binaryPath = binaryPath ?? this.resolveBinaryPath();
@@ -156,12 +161,14 @@ export class SidecarManager {
         this.process.on('error', (err) => {
           this.process = null;
           this.startedAt = null;
+          this.stopConnectionPoll();
           settle(() => reject(new Error(`Failed to start: ${err.message}`)));
         });
 
         this.process.on('exit', (code) => {
           this.process = null;
           this.startedAt = null;
+          this.stopConnectionPoll();
           if (code !== 0 && code !== null) {
             const lastLogs = this.logs.slice(-5).join('\n');
             settle(() => reject(new Error(
@@ -173,10 +180,13 @@ export class SidecarManager {
           }
         });
 
+        // Wait briefly for process to stabilize, then start connection polling.
+        // Do NOT emit 'connected' — let the poller determine actual state from the admin API.
         setTimeout(() => {
           settle(() => {
             if (this.process && !this.process.killed) {
-              this.emitState('connected');
+              this.emitState('reconnecting');
+              this.startConnectionPoll();
               resolve();
             } else {
               reject(new Error('qurl-frpc exited immediately'));
@@ -186,6 +196,57 @@ export class SidecarManager {
       } catch (err) {
         settle(() => reject(err));
       }
+    });
+  }
+
+  /**
+   * Poll the FRP admin API to determine actual tunnel connection state.
+   * Uses exponential backoff when stuck in 'reconnecting', drops to a
+   * relaxed interval once 'connected'.
+   */
+  private startConnectionPoll(): void {
+    this.stopConnectionPoll();
+    this.connectionPollAttempts = 0;
+    this.pollConnectionOnce();
+  }
+
+  private stopConnectionPoll(): void {
+    if (this.connectionPollTimer) {
+      clearTimeout(this.connectionPollTimer);
+      this.connectionPollTimer = null;
+    }
+  }
+
+  private pollConnectionOnce(): void {
+    if (this.intentionalStop || !this.isRunning()) return;
+
+    this.getConnectionState().then((state) => {
+      if (this.intentionalStop || !this.isRunning()) return;
+
+      let nextInterval: number;
+      if (state === 'connected') {
+        // Connected — reset backoff, poll at relaxed interval
+        this.connectionPollAttempts = 0;
+        nextInterval = this.CONNECTED_POLL_INTERVAL;
+      } else {
+        // Not connected — exponential backoff
+        nextInterval = Math.min(
+          this.INITIAL_POLL_INTERVAL * Math.pow(2, this.connectionPollAttempts),
+          this.MAX_POLL_INTERVAL,
+        );
+        this.connectionPollAttempts++;
+      }
+
+      this.connectionPollTimer = setTimeout(() => this.pollConnectionOnce(), nextInterval);
+    }).catch(() => {
+      // Admin API error — back off
+      if (this.intentionalStop || !this.isRunning()) return;
+      const nextInterval = Math.min(
+        this.INITIAL_POLL_INTERVAL * Math.pow(2, this.connectionPollAttempts),
+        this.MAX_POLL_INTERVAL,
+      );
+      this.connectionPollAttempts++;
+      this.connectionPollTimer = setTimeout(() => this.pollConnectionOnce(), nextInterval);
     });
   }
 
@@ -221,6 +282,7 @@ export class SidecarManager {
 
   async stop(): Promise<void> {
     this.intentionalStop = true;
+    this.stopConnectionPoll();
     if (this.restartTimer) {
       clearTimeout(this.restartTimer);
       this.restartTimer = null;
