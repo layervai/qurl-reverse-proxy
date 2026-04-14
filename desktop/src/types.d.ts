@@ -177,6 +177,25 @@ interface QURLDefaults {
   autoStartTunnel?: boolean;
 }
 
+// --- Resources ---
+
+interface ResourceCreateInput {
+  target_url: string;
+  description?: string;
+}
+
+interface ResourceCreateResult extends IpcResult {
+  resource?: { resource_id: string; target_url: string; status: string };
+}
+
+interface ResourceListResult extends IpcResult {
+  resources?: ResourceDetail[];
+}
+
+interface FileSetupResult extends IpcResult {
+  publicUrl?: string;
+}
+
 // --- Bridge ---
 
 interface QUrlBridge {
@@ -198,11 +217,16 @@ interface QUrlBridge {
     remove: (name: string) => Promise<IpcResult>;
     toggle: (name: string, enabled: boolean) => Promise<IpcResult>;
   };
+  resources: {
+    create: (input: ResourceCreateInput) => Promise<ResourceCreateResult>;
+    list: () => Promise<ResourceListResult>;
+  };
   share: {
     file: (filePath: string, name: string, options?: Partial<QURLCreateInput>) => Promise<QURLCreateResult>;
     url: (targetUrl: string, options?: Partial<QURLCreateInput>) => Promise<QURLCreateResult>;
     urlLocal: (targetUrl: string, options?: Partial<QURLCreateInput>) => Promise<QURLCreateResult>;
     service: (serviceName: string, options?: Partial<QURLCreateInput>) => Promise<QURLCreateResult>;
+    setupFile: (filePath: string, name: string) => Promise<FileSetupResult>;
     stop: (id: string) => Promise<IpcResult>;
     list: () => Promise<ShareInfo[]>;
     detectUrl: (url: string) => Promise<URLDetectResult>;

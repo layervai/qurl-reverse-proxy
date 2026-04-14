@@ -486,6 +486,120 @@ export function setupIpcHandlers(): void {
     }
   });
 
+  // --- Resource operations (no QURL creation) ---
+
+  ipcMain.handle('resources:create', async (_event, input: { target_url: string; description?: string }) => {
+    try {
+      const result = await apiRequest<{ data: { resource_id: string; target_url: string; status: string } }>(
+        'POST', '/v1/resources', input,
+      );
+      return { success: true, resource: result.data };
+    } catch (err) {
+      return { success: false, error: formatApiError(err) };
+    }
+  });
+
+  ipcMain.handle('resources:list', async () => {
+    try {
+      // Fetch all resources (paginate if needed)
+      const result = await apiRequest<{ data: Array<{ resource_id: string; target_url: string; status: string; created_at: string; description?: string; tags?: string[]; qurl_site?: string; qurl_count?: number; custom_domain?: string | null }> }>(
+        'GET', '/v1/resources?limit=100',
+      );
+      // Map to ResourceDetail-compatible shape (qurls populated on expand)
+      const resources = (result.data || []).map((r) => ({
+        resource_id: r.resource_id,
+        target_url: r.target_url,
+        status: r.status as 'active' | 'revoked',
+        created_at: r.created_at,
+        description: r.description,
+        tags: r.tags || [],
+        qurl_site: r.qurl_site || '',
+        qurl_count: r.qurl_count || 0,
+        custom_domain: r.custom_domain || null,
+        qurls: [], // populated when user expands the resource
+      }));
+      return { success: true, resources };
+    } catch (err) {
+      return { success: false, error: formatApiError(err) };
+    }
+  });
+
+  // --- File setup (local only, no QURL) ---
+
+  ipcMain.handle('share:setupFile', async (_event, filePath: string, name: string) => {
+    try {
+      const id = crypto.randomUUID();
+      const token = id.slice(0, 12);
+      const rawName = name || path.basename(filePath);
+      const fileName = rawName.replace(/[\u00A0\u2002-\u200B\u202F\u205F\u3000]/g, ' ');
+
+      // Copy file to managed share directory
+      const shareDir = ensureShareDir();
+      const tokenDir = path.join(shareDir, token);
+      fs.mkdirSync(tokenDir, { recursive: true });
+      const destPath = path.join(tokenDir, fileName);
+      fs.copyFileSync(filePath, destPath);
+
+      // Ensure file server is running
+      const result = await ensureFileServer();
+
+      // Ensure config + tunnel route
+      sidecar.ensureConfigExists();
+      const frpc = getFrpcPath();
+      const configPath = sidecar.getConfigPath();
+
+      try {
+        const { stdout } = await execFileAsync(frpc, ['list', '--json', '--config', configPath]);
+        const routes = JSON.parse(stdout) as Array<{ Name: string; LocalPort: number }>;
+        const existingRoute = routes.find((r) => r.Name === 'qurl-files');
+        if (existingRoute && existingRoute.LocalPort !== result.port) {
+          await execFileAsync(frpc, ['remove', 'qurl-files', '--config', configPath]);
+        }
+        if (!existingRoute || existingRoute.LocalPort !== result.port) {
+          const addArgs = ['add', '--target', `http://127.0.0.1:${result.port}`, '--name', 'qurl-files', '--no-verify', '--config', configPath];
+          const tokens = auth.getTokens();
+          if (tokens?.accessToken) addArgs.push('--token', tokens.accessToken);
+          await execFileAsync(frpc, addArgs);
+        }
+      } catch {
+        try {
+          const addArgs = ['add', '--target', `http://127.0.0.1:${result.port}`, '--name', 'qurl-files', '--no-verify', '--config', configPath];
+          const tokens = auth.getTokens();
+          if (tokens?.accessToken) addArgs.push('--token', tokens.accessToken);
+          await execFileAsync(frpc, addArgs);
+        } catch { /* best effort */ }
+      }
+
+      // (Re)start sidecar
+      if (sidecar.isRunning()) {
+        await sidecar.stop();
+        await new Promise((resolve) => setTimeout(resolve, 500));
+      }
+      await sidecar.start();
+      await new Promise((resolve) => setTimeout(resolve, 2000));
+
+      // Get public URL
+      const encodedFileName = encodeURIComponent(fileName);
+      let publicUrl = `http://127.0.0.1:${result.port}/${token}/${encodedFileName}`;
+      try {
+        const { stdout } = await execFileAsync(frpc, ['list', '--json', '--config', configPath]);
+        const routes = JSON.parse(stdout) as Array<{ Name: string; Subdomain: string }>;
+        const fileRoute = routes.find((r) => r.Name === 'qurl-files');
+        if (fileRoute?.Subdomain) {
+          publicUrl = getTunnelTargetUrl(fileRoute.Subdomain, `${token}/${encodedFileName}`);
+        }
+      } catch { /* fall through to local URL */ }
+
+      // Track as active share (for cleanup)
+      activeShares.set(id, { id, name: fileName, filePath: destPath, port: result.port, url: publicUrl, createdAt: Date.now(), expiresAt: null } as ShareInfo & { resourceId?: string });
+      persistShares();
+
+      return { success: true, publicUrl };
+    } catch (err) {
+      return { success: false, error: formatApiError(err) };
+    }
+  });
+
   // --- QURL operations ---
 
   ipcMain.handle('qurls:create', async (_event, input: QURLCreateInput) => {

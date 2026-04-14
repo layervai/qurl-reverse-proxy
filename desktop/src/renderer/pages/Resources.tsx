@@ -3,6 +3,12 @@ import { AccessPolicyForm } from '../components/AccessPolicyForm';
 import { DropZone } from '../components/DropZone';
 
 // ---------------------------------------------------------------------------
+// Constants
+// ---------------------------------------------------------------------------
+
+const SSH_PREFIX_RE = /^SSH:/i;
+
+// ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
@@ -83,24 +89,7 @@ function getStatusStyle(status: string): StatusStyle {
   }
 }
 
-/**
- * Determine the "effective" state of a resource for visual display.
- * A resource can be "active" in the API but have no usable links — we call that "dormant".
- */
-type EffectiveState = 'sharing' | 'dormant' | 'expired' | 'revoked';
-
-function getEffectiveState(q: QURLInfo, detail?: ResourceDetail): EffectiveState {
-  if (q.status === 'revoked') return 'revoked';
-  if (q.status === 'expired') return 'expired';
-  // If we have detail, check if any QURL is actually active
-  if (detail) {
-    const hasActiveQurl = detail.qurls.some((t) => t.status === 'active');
-    return hasActiveQurl ? 'sharing' : 'dormant';
-  }
-  // Without detail loaded yet, show dormant (conservative) rather than
-  // flashing green — the correct state will render once detail arrives
-  return 'dormant';
-}
+type EffectiveState = 'sharing' | 'dormant' | 'revoked';
 
 type EffectiveStyle = { dotClass: string; textClass: string; label: string; borderClass: string; glowClass: string };
 
@@ -122,14 +111,6 @@ function getEffectiveStyle(state: EffectiveState): EffectiveStyle {
         borderClass: 'border-glass-border',
         glowClass: '',
       };
-    case 'expired':
-      return {
-        dotClass: 'bg-text-muted',
-        textClass: 'text-text-muted',
-        label: 'Expired',
-        borderClass: 'border-glass-border',
-        glowClass: '',
-      };
     case 'revoked':
       return {
         dotClass: 'bg-danger',
@@ -145,7 +126,7 @@ function getEffectiveStyle(state: EffectiveState): EffectiveStyle {
 // Filter types
 // ---------------------------------------------------------------------------
 
-type FilterTab = 'active' | 'inactive' | 'revoked' | 'all';
+type FilterTab = 'active' | 'no-active-qurls' | 'revoked' | 'all';
 
 const FILTER_TABS: {
   id: FilterTab;
@@ -160,16 +141,16 @@ const FILTER_TABS: {
     label: 'Active',
     dotClass: 'bg-success',
     activeBadgeClass: 'bg-success-dim text-success',
-    emptyTitle: 'Nothing being shared right now',
-    emptyHint: 'Mint a new link on an inactive resource to start sharing.',
+    emptyTitle: 'No active resources',
+    emptyHint: 'Create a resource above to get started.',
   },
   {
-    id: 'inactive',
-    label: 'Inactive',
+    id: 'no-active-qurls',
+    label: 'No Active QURLs',
     dotClass: 'bg-warning',
     activeBadgeClass: 'bg-warning-dim text-warning',
-    emptyTitle: 'No idle resources',
-    emptyHint: 'Resources appear here when all their access links expire or get revoked.',
+    emptyTitle: 'All resources have active links',
+    emptyHint: 'Resources appear here when none of their QURL links are active.',
   },
   {
     id: 'revoked',
@@ -281,7 +262,7 @@ function MintedLinkModal({
           <svg className="w-6 h-6 text-success shrink-0" viewBox="0 0 24 24" fill="currentColor">
             <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z" />
           </svg>
-          <h3 className="text-[15px] font-semibold text-text-primary">Access Link Created</h3>
+          <h3 className="text-[15px] font-semibold text-text-primary">Qurl Created</h3>
         </div>
 
         {/* Warning */}
@@ -426,40 +407,70 @@ interface QurlsProps {
   mode: 'files' | 'http' | 'ssh';
 }
 
-const MODE_META: Record<string, { title: string; subtitle: string; newBtn: string; createTitle: string; emptyTitle: string; emptyHint: string; typeMatch: string[] }> = {
+interface ModeMeta {
+  title: string;
+  subtitle: string;
+  newBtn: string;
+  createTitle: string;
+  emptyTitle: string;
+  emptyHint: string;
+  typeMatch: string[];
+  filterFn?: (r: ResourceDetail) => boolean;
+}
+
+const MODE_META: Record<string, ModeMeta> = {
   files: {
     title: 'Files',
-    subtitle: 'Manage secure access links for your shared files.',
-    newBtn: '+ New File',
-    createTitle: 'Share File',
-    emptyTitle: 'No files shared yet',
-    emptyHint: 'Drop a file or click the button above to create a secure, time-limited download link.',
+    subtitle: 'Manage file resources and their QURL access links.',
+    newBtn: '+ New File Resource',
+    createTitle: 'New File Resource',
+    emptyTitle: 'No file resources yet',
+    emptyHint: 'Add a file resource, then mint QURL links to share secure, time-limited access.',
     typeMatch: ['file'],
   },
   http: {
     title: 'HTTP Services',
-    subtitle: 'Manage secure access links for your web apps and APIs.',
-    newBtn: '+ New HTTP Service',
-    createTitle: 'Expose HTTP Service',
-    emptyTitle: 'No HTTP services shared',
-    emptyHint: 'Expose a local web app or API by entering its URL. Local services are automatically tunneled.',
+    subtitle: 'Manage HTTP service resources and their QURL access links.',
+    newBtn: '+ New HTTP Resource',
+    createTitle: 'New HTTP Service Resource',
+    emptyTitle: 'No HTTP service resources yet',
+    emptyHint: 'Add an HTTP service resource, then mint QURL links to share secure access.',
     typeMatch: ['tunneled', 'private', 'public'],
+    filterFn: (r) => {
+      if (SSH_PREFIX_RE.test(r.description ?? '')) return false;
+      return MODE_META.http.typeMatch.includes(getTypeIndicator(r.target_url).label);
+    },
   },
   ssh: {
     title: 'SSH Services',
-    subtitle: 'Manage secure access links for your SSH servers.',
-    newBtn: '+ New SSH Service',
-    createTitle: 'Expose SSH Service',
-    emptyTitle: 'No SSH services shared',
-    emptyHint: 'Expose a local SSH server through a secure QURL TCP tunnel.',
+    subtitle: 'Manage SSH service resources and their QURL access links.',
+    newBtn: '+ New SSH Resource',
+    createTitle: 'New SSH Service Resource',
+    emptyTitle: 'No SSH service resources yet',
+    emptyHint: 'Add an SSH service resource, then mint QURL links to share secure access.',
     typeMatch: [],
+    filterFn: (r) => SSH_PREFIX_RE.test(r.description ?? ''),
   },
 };
 
+function buildCreateDefaults(mode: string, defaults: QURLDefaults | null): Partial<QURLCreateInput> {
+  const d = defaults
+    ? mode === 'files' ? defaults.file : mode === 'ssh' ? defaults.ssh : defaults.http
+    : null;
+  return {
+    target_url: '',
+    expires_in: d?.expires_in || (mode === 'files' ? '1h' : mode === 'ssh' ? '7d' : '24h'),
+    one_time_use: d?.one_time_use ?? (mode === 'files'),
+    max_sessions: d?.max_sessions,
+    session_duration: d?.session_duration,
+    access_policy: d?.access_policy,
+  };
+}
+
 export function Qurls({ mode }: QurlsProps) {
   const meta = MODE_META[mode];
-  // --- Data ---
-  const [resources, setResources] = useState<QURLInfo[]>([]);
+  // --- Data --- (resources from API, not QURLs)
+  const [resources, setResources] = useState<ResourceDetail[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -469,15 +480,13 @@ export function Qurls({ mode }: QurlsProps) {
 
   // --- Create form ---
   const [showCreate, setShowCreate] = useState(false);
-  const [createInput, setCreateInput] = useState<Partial<QURLCreateInput>>({
-    target_url: '',
-    expires_in: '24h',
-  });
+  const [createInput, setCreateInput] = useState<Partial<QURLCreateInput>>({ target_url: '' });
   // SSH-specific state
   const [sshHost, setSshHost] = useState('localhost');
   const [sshPort, setSshPort] = useState('22');
   const [sshName, setSshName] = useState('');
   const [creating, setCreating] = useState(false);
+  const [createDescription, setCreateDescription] = useState('');
   const [pendingFile, setPendingFile] = useState<{ path: string; name: string } | null>(null);
   const [qurlDefaults, setQurlDefaults] = useState<QURLDefaults | null>(null);
 
@@ -493,7 +502,9 @@ export function Qurls({ mode }: QurlsProps) {
 
   // --- Mint link ---
   const [mintingFor, setMintingFor] = useState<string | null>(null);
-  const [mintInput, setMintInput] = useState<Partial<QURLCreateInput>>({ expires_in: '1h' });
+  const [mintInput, setMintInput] = useState<Partial<QURLCreateInput>>(() => {
+    return buildCreateDefaults(mode, null);
+  });
   const [showMintAdvanced, setShowMintAdvanced] = useState(false);
   const [mintSubmitting, setMintSubmitting] = useState(false);
   const [mintedLink, setMintedLink] = useState<{ resourceId: string; link: string } | null>(null);
@@ -513,43 +524,47 @@ export function Qurls({ mode }: QurlsProps) {
 
   const fetchResources = useCallback(async () => {
     try {
-      const result = await window.qurl.qurls.list();
-      if (result.success && result.qurls) {
-        // Pre-fetch details for active resources so effective state is accurate
-        // Do this BEFORE setting resources so we render with correct colors immediately
-        const activeIds = result.qurls
-          .filter((q) => q.status === 'active')
-          .map((q) => q.resource_id);
+      const result = await window.qurl.resources.list();
+      if (result.success && result.resources) {
+        // Filter by mode type
+        const filtered = meta.filterFn
+          ? result.resources.filter(meta.filterFn)
+          : result.resources.filter((r) =>
+              meta.typeMatch.includes(getTypeIndicator(r.target_url).label)
+            );
+        setResources(filtered);
 
-        let newDetails: Record<string, ResourceDetail> = {};
-        if (activeIds.length > 0) {
-          const detailResults = await Promise.allSettled(
-            activeIds.map((id) => window.qurl.qurls.get(id))
-          );
-          detailResults.forEach((d, i) => {
-            if (d.status === 'fulfilled' && d.value.success && d.value.resource) {
-              newDetails[activeIds[i]] = d.value.resource;
-            }
-          });
+        // Pre-fetch details for expanded resource cards
+        const details: Record<string, ResourceDetail> = {};
+        for (const r of filtered) {
+          details[r.resource_id] = r;
         }
-
-        // Set both in a single render cycle
-        setResourceDetails((prev) => ({ ...prev, ...newDetails }));
-        setResources(result.qurls);
+        setResourceDetails((prev) => ({ ...prev, ...details }));
       }
     } catch {
       /* ignore */
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [mode]);
 
   useEffect(() => {
     fetchResources();
-    window.qurl.settings.getDefaults().then(setQurlDefaults).catch(() => {});
+    window.qurl.settings.getDefaults().then((d) => {
+      setQurlDefaults(d);
+      // Initialize mint form with defaults from settings
+      setMintInput(buildCreateDefaults(mode, d));
+    }).catch(() => {});
     const interval = setInterval(fetchResources, 30000);
     return () => clearInterval(interval);
-  }, [fetchResources]);
+  }, [fetchResources, mode]);
+
+  // Re-apply defaults when mode changes or defaults finish loading
+  useEffect(() => {
+    if (!showCreate) {
+      setCreateInput(buildCreateDefaults(mode, qurlDefaults));
+    }
+  }, [mode, qurlDefaults]);
 
   const fetchResourceDetail = useCallback(async (resourceId: string) => {
     setLoadingDetail(resourceId);
@@ -583,10 +598,8 @@ export function Qurls({ mode }: QurlsProps) {
   // Filter counts & filtered list
   // ---------------------------------------------------------------------------
 
-  // Pre-filter by mode
-  const modeResources = useMemo(() => {
-    return resources.filter((r) => meta.typeMatch.includes(getTypeIndicator(r.target_url).label));
-  }, [resources, meta.typeMatch]);
+  // Resources are already filtered by mode from fetchResources
+  const modeResources = resources;
 
   const counts = useMemo(() => {
     let pool = modeResources;
@@ -599,35 +612,28 @@ export function Qurls({ mode }: QurlsProps) {
       pool = pool.filter((r) => new Date(r.created_at).getTime() >= cutoff);
     }
     let active = 0;
-    let inactive = 0;
+    let noActiveQurls = 0;
     let revoked = 0;
     for (const r of pool) {
       if (r.status === 'revoked') {
         revoked++;
       } else {
-        const detail = resourceDetails[r.resource_id];
-        const state = getEffectiveState(r, detail);
-        if (state === 'sharing') active++;
-        else inactive++;
+        active++;
+        const hasActiveQurl = (r.qurls || []).some((q) => q.status === 'active');
+        if (!hasActiveQurl) noActiveQurls++;
       }
     }
-    return { active, inactive, revoked, all: pool.length };
-  }, [modeResources, resourceDetails, dateRange]);
+    return { active, 'no-active-qurls': noActiveQurls, revoked, all: pool.length };
+  }, [modeResources, dateRange]);
 
   const filteredResources = useMemo(() => {
-    let result: QURLInfo[];
+    let result: ResourceDetail[];
     if (filter === 'active') {
+      result = modeResources.filter((r) => r.status !== 'revoked');
+    } else if (filter === 'no-active-qurls') {
       result = modeResources.filter((r) => {
         if (r.status === 'revoked') return false;
-        const detail = resourceDetails[r.resource_id];
-        return getEffectiveState(r, detail) === 'sharing';
-      });
-    } else if (filter === 'inactive') {
-      result = modeResources.filter((r) => {
-        if (r.status === 'revoked') return false;
-        const detail = resourceDetails[r.resource_id];
-        const state = getEffectiveState(r, detail);
-        return state === 'dormant' || state === 'expired';
+        return !(r.qurls || []).some((q) => q.status === 'active');
       });
     } else if (filter === 'revoked') {
       result = modeResources.filter((r) => r.status === 'revoked');
@@ -665,81 +671,76 @@ export function Qurls({ mode }: QurlsProps) {
     [expandedId, fetchResourceDetail],
   );
 
-  const handleCreate = useCallback(async () => {
-    // SSH mode: use host/port instead of target_url
-    if (mode === 'ssh') {
-      const host = sshHost.trim() || 'localhost';
-      const port = sshPort.trim() || '22';
-      const name = sshName.trim() || `ssh-${host}-${port}`;
-      setCreating(true);
-      setError(null);
-      try {
-        const addResult = await window.qurl.tunnels.add(`${host}:${port}`, name);
-        if (!addResult.success) { setError(addResult.error || 'Failed to create tunnel'); return; }
-        const result = await window.qurl.share.service(name, { ...createInput, label: sshName || undefined });
-        if (!result.success) { setError(result.error || 'Failed to create QURL'); return; }
-        if (result.qurl?.qurl_link) {
-          setMintedLink({ resourceId: result.qurl.resource_id, link: result.qurl.qurl_link });
-        }
-        setShowCreate(false);
-        setSshHost('localhost'); setSshPort('22'); setSshName('');
-        await fetchResources();
-      } catch (err) { setError(String(err)); }
-      finally { setCreating(false); }
-      return;
-    }
+  // After resource creation, expand it with mint form open
+  const focusResource = useCallback((resourceId: string) => {
+    setExpandedId(resourceId);
+    setMintingFor(resourceId);
+    fetchResourceDetail(resourceId);
+  }, [fetchResourceDetail]);
 
-    if (!createInput.target_url && !pendingFile) return;
+  const handleCreate = useCallback(async () => {
     setCreating(true);
     setError(null);
     try {
-      let result: QURLCreateResult;
-      if (pendingFile) {
-        const opts: Partial<QURLCreateInput> = {};
-        if (createInput.expires_in) opts.expires_in = createInput.expires_in;
-        if (createInput.one_time_use) opts.one_time_use = createInput.one_time_use;
-        if (createInput.max_sessions) opts.max_sessions = createInput.max_sessions;
-        if (createInput.session_duration) opts.session_duration = createInput.session_duration;
-        if (createInput.label) opts.label = createInput.label;
-        if (createInput.access_policy) opts.access_policy = createInput.access_policy;
-        result = await window.qurl.share.file(pendingFile.path, pendingFile.name, opts);
-      } else {
-        let targetUrl = createInput.target_url!.trim();
+      let targetUrl: string;
+
+      if (mode === 'ssh') {
+        // SSH: create tunnel route, then get public URL for API resource
+        const host = sshHost.trim() || 'localhost';
+        const port = sshPort.trim() || '22';
+        const name = sshName.trim() || `ssh-${host}-${port}`;
+        const addResult = await window.qurl.tunnels.add(`${host}:${port}`, name);
+        if (!addResult.success) { setError(addResult.error || 'Failed to create tunnel'); return; }
+        // The tunnel's public URL will be the resource target
+        const tunnels = await window.qurl.tunnels.list();
+        const tunnel = tunnels.find((t) => t.name === name);
+        targetUrl = tunnel?.publicUrl || `${host}:${port}`;
+      } else if (mode === 'files' && pendingFile) {
+        // Files: set up local file serving, get public URL
+        const setupResult = await window.qurl.share.setupFile(pendingFile.path, pendingFile.name);
+        if (!setupResult.success) { setError(setupResult.error || 'Failed to set up file'); return; }
+        targetUrl = setupResult.publicUrl!;
+      } else if (createInput.target_url) {
+        // HTTP: normalize URL, create tunnel for local URLs
+        targetUrl = createInput.target_url.trim();
         if (!targetUrl.startsWith('http://') && !targetUrl.startsWith('https://')) {
-          if (targetUrl.match(/^localhost(:\d+)?/)) {
-            targetUrl = 'http://' + targetUrl;
-          } else if (targetUrl.includes('.') && !targetUrl.includes(' ')) {
-            targetUrl = 'https://' + targetUrl;
-          }
+          if (targetUrl.match(/^localhost(:\d+)?/)) targetUrl = 'http://' + targetUrl;
+          else if (targetUrl.includes('.') && !targetUrl.includes(' ')) targetUrl = 'https://' + targetUrl;
         }
-        // Use urlLocal for local URLs in HTTP mode
         const detectResult = await window.qurl.share.detectUrl(targetUrl).catch(() => null);
         if (detectResult?.isLocal) {
-          result = await window.qurl.share.urlLocal(targetUrl, createInput);
-        } else {
-          result = await window.qurl.qurls.create({
-            ...createInput,
-            target_url: targetUrl,
-          } as QURLCreateInput);
+          // Create tunnel for local URL
+          const name = targetUrl.replace(/[^a-zA-Z0-9]/g, '-').slice(0, 30);
+          const addResult = await window.qurl.tunnels.add(targetUrl, name);
+          if (!addResult.success) { setError(addResult.error || 'Failed to create tunnel'); return; }
+          const tunnels = await window.qurl.tunnels.list();
+          const tunnel = tunnels.find((t) => t.name === name);
+          targetUrl = tunnel?.publicUrl || targetUrl;
         }
-      }
-      if (!result.success) {
-        setError(result.error || 'Failed to create');
+      } else {
         return;
       }
-      if (result.qurl?.qurl_link) {
-        setMintedLink({ resourceId: result.qurl.resource_id, link: result.qurl.qurl_link });
-      }
+
+      // Create resource on the API (no QURL)
+      const description = mode === 'ssh'
+        ? `SSH: ${sshName.trim() || `${sshHost.trim() || 'localhost'}:${sshPort.trim() || '22'}`}`
+        : createDescription.trim() || undefined;
+      const result = await window.qurl.resources.create({ target_url: targetUrl, ...(description ? { description } : {}) });
+      if (!result.success) { setError(result.error || 'Failed to create resource'); return; }
+
       setShowCreate(false);
-      setCreateInput({ target_url: '', expires_in: '24h' });
+      setCreateInput({ target_url: '' });
+      setCreateDescription('');
       setPendingFile(null);
+      if (mode === 'ssh') { setSshHost('localhost'); setSshPort('22'); setSshName(''); }
       await fetchResources();
+      if (result.resource?.resource_id) focusResource(result.resource.resource_id);
     } catch (err) {
       setError(String(err));
     } finally {
       setCreating(false);
     }
-  }, [mode, createInput, pendingFile, sshHost, sshPort, sshName, fetchResources]);
+  }, [mode, createInput, createDescription, pendingFile, sshHost, sshPort, sshName, fetchResources, focusResource]);
 
   const handleFileDrop = useCallback(
     (files: File[]) => {
@@ -863,7 +864,7 @@ export function Qurls({ mode }: QurlsProps) {
           setMintedLink({ resourceId, link: result.qurl.qurl_link });
         }
         setMintingFor(null);
-        setMintInput({ expires_in: '1h' });
+        setMintInput(buildCreateDefaults(mode, qurlDefaults));
         setShowMintAdvanced(false);
         await fetchResourceDetail(resourceId);
       } catch (err) {
@@ -910,18 +911,8 @@ export function Qurls({ mode }: QurlsProps) {
           </p>
           <button
             onClick={() => {
-              if (!showCreate && qurlDefaults) {
-                const d = mode === 'files' ? qurlDefaults.file : mode === 'ssh' ? qurlDefaults.ssh : qurlDefaults.http;
-                setCreateInput({
-                  target_url: '',
-                  expires_in: d.expires_in || (mode === 'files' ? '1h' : mode === 'ssh' ? '7d' : '24h'),
-                  one_time_use: d.one_time_use || false,
-                  max_sessions: d.max_sessions,
-                  session_duration: d.session_duration,
-                  access_policy: d.access_policy,
-                });
-              } else if (!showCreate) {
-                setCreateInput({ target_url: '', expires_in: '24h' });
+              if (!showCreate) {
+                setCreateInput({ target_url: '' });
               }
               setShowCreate(!showCreate);
               setError(null);
@@ -971,7 +962,10 @@ export function Qurls({ mode }: QurlsProps) {
       {/* ================================================================== */}
       {showCreate && (
         <div className="bg-surface-2 rounded-xl p-5 border border-glass-border flex flex-col gap-3 animate-in">
-          <h2 className="text-[13px] font-semibold text-text-primary">{meta.createTitle}</h2>
+          <h2 className="text-[13px] font-semibold text-text-primary">Create Resource</h2>
+          <p className="text-[11px] text-text-muted leading-relaxed -mt-1">
+            Once created, you can mint QURL links to share secure, time-limited access to this resource.
+          </p>
 
           {/* Mode-specific source input */}
           {mode === 'files' ? (
@@ -1042,32 +1036,27 @@ export function Qurls({ mode }: QurlsProps) {
             </div>
           )}
 
-          {/* Label */}
-          <div>
-            <label className="text-xs font-medium text-text-secondary mb-1 block">
-              Label <span className="text-text-muted font-normal">(optional)</span>
-            </label>
-            <input
-              value={createInput.label || ''}
-              onChange={(e) =>
-                setCreateInput((p) => ({ ...p, label: e.target.value || undefined }))
-              }
-              placeholder={mode === 'files' ? 'e.g. Q3 earnings report' : mode === 'ssh' ? 'e.g. Dev server access' : 'e.g. Staging dashboard'}
-              className="w-full py-2 px-3.5 bg-surface-1 border border-glass-border rounded-lg text-text-primary text-[13px] placeholder:text-text-muted focus:border-accent focus:outline-none focus:ring-[3px] focus:ring-accent-dim"
-            />
-          </div>
+          {/* Description (optional, files and HTTP modes) */}
+          {mode !== 'ssh' && (
+            <div>
+              <label className="text-xs font-medium text-text-secondary mb-1 block">
+                Description <span className="text-text-muted font-normal">(optional)</span>
+              </label>
+              <input
+                value={createDescription}
+                onChange={(e) => setCreateDescription(e.target.value)}
+                placeholder={mode === 'files' ? 'e.g., Design assets for review' : 'e.g., Staging environment'}
+                className="w-full py-2.5 px-3.5 bg-surface-1 border border-glass-border rounded-lg text-text-primary text-[13px] placeholder:text-text-muted focus:border-accent focus:outline-none focus:ring-[3px] focus:ring-accent-dim"
+              />
+            </div>
+          )}
 
-          {/* Qurl Settings */}
-          <div className="pt-1">
-            <h3 className="text-[13px] font-bold text-text-primary">Qurl Settings</h3>
-          </div>
-          <AccessPolicyForm value={createInput} onChange={setCreateInput} compact />
           <div className="flex justify-end pt-1">
             <button
               onClick={handleCreate}
-              disabled={creating || (mode === 'ssh' ? false : (!createInput.target_url && !pendingFile))}
+              disabled={creating || (mode !== 'ssh' && !createInput.target_url && !pendingFile)}
               className={`bg-gradient-to-r from-[#0099FF] to-[#D406B9] text-white py-2 px-6 rounded-lg font-semibold text-[13px] transition-all duration-150 ${
-                creating || (mode === 'ssh' ? false : (!createInput.target_url && !pendingFile))
+                creating || (mode !== 'ssh' && !createInput.target_url && !pendingFile)
                   ? 'opacity-40 cursor-not-allowed'
                   : 'opacity-100 cursor-pointer hover:shadow-[0_0_20px_rgba(0,153,255,0.25)]'
               }`}
@@ -1078,7 +1067,7 @@ export function Qurls({ mode }: QurlsProps) {
                   Creating...
                 </span>
               ) : (
-                mode === 'files' ? 'Share File' : 'Create QURL'
+                'Create Resource'
               )}
             </button>
           </div>
@@ -1196,12 +1185,16 @@ export function Qurls({ mode }: QurlsProps) {
         <div className="flex flex-col gap-2">
           {filteredResources.map((q, idx) => {
             const isExpanded = expandedId === q.resource_id;
-            const detail = resourceDetails[q.resource_id];
+            const detail = resourceDetails[q.resource_id] || q;
             const isLoadingDetail = loadingDetail === q.resource_id;
             const resourceSessions = sessions[q.resource_id] || [];
             const isMintOpen = mintingFor === q.resource_id;
 
-            const effectiveState = getEffectiveState(q, detail);
+            // Compute effective state from resource data
+            const effectiveState: EffectiveState =
+              q.status === 'revoked' ? 'revoked'
+              : (q.qurls || []).some((t) => t.status === 'active') ? 'sharing'
+              : 'dormant';
             const eStyle = getEffectiveStyle(effectiveState);
 
             return (
@@ -1211,7 +1204,7 @@ export function Qurls({ mode }: QurlsProps) {
                   isExpanded
                     ? `bg-surface-2 ${eStyle.borderClass} border shadow-lg`
                     : `bg-surface-2 border ${eStyle.borderClass} hover:border-glass-border-hover ${eStyle.glowClass}`
-                } ${effectiveState === 'revoked' || effectiveState === 'expired' ? 'opacity-60' : ''}`}
+                } ${effectiveState === 'revoked' ? 'opacity-60' : ''}`}
                 style={{ animation: `fadeIn 350ms cubic-bezier(0.16, 1, 0.3, 1) ${idx * 40}ms both` }}
               >
                 {/* Left accent bar */}
@@ -1234,14 +1227,14 @@ export function Qurls({ mode }: QurlsProps) {
                     }`}
                   />
 
-                  {/* Label & URL */}
+                  {/* Name & URL */}
                   <div className="flex flex-col gap-0.5 min-w-0 flex-1">
                     <span className={`font-semibold text-[13px] truncate leading-tight ${
-                      effectiveState === 'revoked' || effectiveState === 'expired' ? 'text-text-muted' : 'text-text-primary'
+                      effectiveState === 'revoked' ? 'text-text-muted' : 'text-text-primary'
                     }`}>
-                      {q.label || q.target_url}
+                      {q.description || q.target_url}
                     </span>
-                    {q.label && (
+                    {q.description && (
                       <span className="text-[11px] text-text-muted font-mono truncate leading-tight">
                         {q.target_url}
                       </span>
@@ -1322,11 +1315,11 @@ export function Qurls({ mode }: QurlsProps) {
                                 const d = resourceDetails[q.resource_id];
                                 const firstQurlLabel = d?.qurls[0]?.label;
                                 const urlFilename = decodeURIComponent(q.target_url.split('/').pop() || '');
-                                const base = q.label || firstQurlLabel || urlFilename || 'Link';
+                                const base = q.description || firstQurlLabel || urlFilename || 'Link';
                                 const count = d ? d.qurls.length : 0;
                                 const label = count > 0 ? `${base} (${count + 1})` : base;
                                 setMintingFor(q.resource_id);
-                                setMintInput({ expires_in: '1h', label });
+                                setMintInput({ ...buildCreateDefaults(mode, qurlDefaults), label });
                                 setShowMintAdvanced(false);
                               }}
                               className="text-accent text-[11px] font-semibold bg-transparent cursor-pointer hover:underline flex items-center gap-1"
@@ -1334,14 +1327,14 @@ export function Qurls({ mode }: QurlsProps) {
                               <svg className="w-3 h-3" viewBox="0 0 24 24" fill="currentColor">
                                 <path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z" />
                               </svg>
-                              Mint Link
+                              Mint Qurl
                             </button>
                           )}
                         </div>
 
                         {detail.qurls.length === 0 && !isMintOpen && (
                           <div className="py-4 text-center text-[12px] text-text-muted bg-surface-1 rounded-lg border border-glass-border">
-                            No access links yet. Mint one to share access to this resource.
+                            No QURL links yet. Mint one to share secure access to this resource.
                           </div>
                         )}
 
@@ -1424,7 +1417,7 @@ export function Qurls({ mode }: QurlsProps) {
                     {isMintOpen && (
                       <div className="mx-5 mb-3 bg-surface-1 rounded-lg p-4 border border-accent-border flex flex-col gap-3 animate-in">
                         <h4 className="text-[13px] font-semibold text-text-primary">
-                          Mint New Access Link
+                          Create Qurl
                         </h4>
 
                         {/* Label (basic field) */}
@@ -1540,10 +1533,10 @@ export function Qurls({ mode }: QurlsProps) {
                             {mintSubmitting ? (
                               <span className="flex items-center gap-1.5">
                                 <Spinner />
-                                Minting...
+                                Creating...
                               </span>
                             ) : (
-                              'Mint Link'
+                              'Create Qurl'
                             )}
                           </button>
                         </div>
@@ -1655,7 +1648,7 @@ export function Qurls({ mode }: QurlsProps) {
                         </span>
                         <button
                           onClick={() =>
-                            handleRevokeResource(q.resource_id, q.label || q.target_url)
+                            handleRevokeResource(q.resource_id, q.description || q.target_url)
                           }
                           className="bg-transparent text-danger py-1.5 px-3 rounded-lg text-[11px] font-semibold cursor-pointer transition-colors hover:bg-danger-dim border border-transparent hover:border-danger-border shrink-0"
                         >
