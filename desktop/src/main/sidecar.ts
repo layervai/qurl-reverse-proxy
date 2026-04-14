@@ -9,7 +9,9 @@ const ADMIN_HOST = '127.0.0.1';
 const CONFIG_DIR = path.join(os.homedir(), '.config', 'qurl');
 const CONFIG_PATH = path.join(CONFIG_DIR, 'qurl-proxy.yaml');
 
-export type ConnectionState = 'running' | 'reconnecting' | 'disconnected';
+const STATE_CACHE_TTL = 3000; // 3s — shared across tray and renderer polling
+
+export type ConnectionState = 'connected' | 'reconnecting' | 'disconnected';
 
 export interface SidecarStatus {
   running: boolean;
@@ -25,16 +27,17 @@ export class SidecarManager {
   private logs: string[] = [];
   private logPath: string | null = null;
 
-  // Auto-restart state
   private restartAttempts = 0;
   private restartTimer: ReturnType<typeof setTimeout> | null = null;
   private intentionalStop = false;
   private cachedState: ConnectionState = 'disconnected';
+  private stateCacheTime = 0;
   private onStateChange?: (state: ConnectionState) => void;
+  private adminAuthCache: string | null = null;
 
   private readonly MAX_RESTART_ATTEMPTS = 10;
-  private readonly INITIAL_RESTART_DELAY = 2000;   // 2s
-  private readonly MAX_RESTART_DELAY = 60000;       // 60s
+  private readonly INITIAL_RESTART_DELAY = 2000;
+  private readonly MAX_RESTART_DELAY = 60000;
 
   constructor(binaryPath?: string) {
     this.binaryPath = binaryPath ?? this.resolveBinaryPath();
@@ -73,16 +76,14 @@ export class SidecarManager {
     return CONFIG_PATH;
   }
 
-  /**
-   * Register a callback for connection state changes.
-   * Used by the IPC layer to push state updates to the renderer.
-   */
   setStateChangeCallback(cb: (state: ConnectionState) => void): void {
     this.onStateChange = cb;
   }
 
   private emitState(state: ConnectionState): void {
+    if (state === this.cachedState) return;
     this.cachedState = state;
+    this.stateCacheTime = Date.now();
     this.onStateChange?.(state);
   }
 
@@ -104,7 +105,6 @@ export class SidecarManager {
       throw new Error('Sidecar is already running');
     }
 
-    // Reset auto-restart state on explicit start
     this.intentionalStop = false;
     this.restartAttempts = 0;
     if (this.restartTimer) {
@@ -118,7 +118,6 @@ export class SidecarManager {
       execSync(`lsof -ti :${ADMIN_PORT} | xargs kill -9 2>/dev/null || true`, { stdio: 'ignore' });
     } catch { /* best effort */ }
 
-    // Verify binary exists
     if (!fs.existsSync(this.binaryPath)) {
       throw new Error(
         `qurl-frpc not found at: ${this.binaryPath}\n` +
@@ -126,7 +125,6 @@ export class SidecarManager {
       );
     }
 
-    // Ensure config and built-in qurl-files route exist
     this.ensureFilesRoute();
 
     const args = ['run', '--config', CONFIG_PATH];
@@ -138,7 +136,6 @@ export class SidecarManager {
       };
 
       try {
-        // Write logs to file instead of piping through Electron's event loop.
         // Piped stdio can cause the child process to stall if the pipe buffer fills.
         const logPath = path.join(CONFIG_DIR, 'qurl-frpc.log');
         const logFd = fs.openSync(logPath, 'a');
@@ -148,14 +145,12 @@ export class SidecarManager {
           detached: true,
         });
 
-        // Unref so the child doesn't keep Electron alive on quit
         this.process.unref();
-
         this.startedAt = Date.now();
         this.logs = [];
         this.logPath = logPath;
+        this.adminAuthCache = null; // invalidate on restart
 
-        // Close the fd in the parent — the child has its own copy
         fs.closeSync(logFd);
 
         this.process.on('error', (err) => {
@@ -173,17 +168,15 @@ export class SidecarManager {
               `qurl-frpc exited with code ${code}${lastLogs ? '\n' + lastLogs : ''}`
             )));
           }
-          // Auto-restart on unexpected exit
           if (!this.intentionalStop) {
             this.scheduleRestart();
           }
         });
 
-        // If still running after 2.5s, consider it started
         setTimeout(() => {
           settle(() => {
             if (this.process && !this.process.killed) {
-              this.emitState('running');
+              this.emitState('connected');
               resolve();
             } else {
               reject(new Error('qurl-frpc exited immediately'));
@@ -196,14 +189,9 @@ export class SidecarManager {
     });
   }
 
-  /**
-   * Schedule an auto-restart with exponential backoff.
-   * Gives up after MAX_RESTART_ATTEMPTS to avoid infinite spinning
-   * (e.g., if the binary is missing or config is permanently broken).
-   */
   private scheduleRestart(): void {
     if (this.restartAttempts >= this.MAX_RESTART_ATTEMPTS) {
-      console.error(`[sidecar] auto-restart failed after ${this.MAX_RESTART_ATTEMPTS} attempts, giving up`);
+      console.error(`[sidecar] auto-restart gave up after ${this.MAX_RESTART_ATTEMPTS} attempts`);
       this.emitState('disconnected');
       return;
     }
@@ -221,14 +209,9 @@ export class SidecarManager {
     this.restartTimer = setTimeout(async () => {
       this.restartTimer = null;
       try {
-        // Temporarily mark as non-intentional so the exit handler doesn't
-        // interfere if start() itself fails synchronously.
-        this.intentionalStop = false;
         await this.start();
-        // start() succeeded — restartAttempts already reset inside start()
       } catch (err) {
         console.error('[sidecar] auto-restart failed:', (err as Error).message);
-        // Retry unless stop was called during the attempt
         if (!this.intentionalStop) {
           this.scheduleRestart();
         }
@@ -237,7 +220,6 @@ export class SidecarManager {
   }
 
   async stop(): Promise<void> {
-    // Mark intentional so auto-restart doesn't kick in
     this.intentionalStop = true;
     if (this.restartTimer) {
       clearTimeout(this.restartTimer);
@@ -256,7 +238,6 @@ export class SidecarManager {
       const pid = proc.pid;
 
       const forceKillTimer = setTimeout(() => {
-        // For detached processes, kill by PID directly
         if (pid) { try { process.kill(pid, 'SIGKILL'); } catch { /* already dead */ } }
         this.process = null;
         this.startedAt = null;
@@ -272,16 +253,14 @@ export class SidecarManager {
         resolve();
       });
 
-      // For detached processes, kill by PID
       if (pid) { try { process.kill(pid, 'SIGTERM'); } catch { /* already dead */ } }
     });
   }
 
   isRunning(): boolean {
     if (!this.process || !this.process.pid) return false;
-    // For detached processes, check if the PID is still alive
     try {
-      process.kill(this.process.pid, 0); // signal 0 = just check if alive
+      process.kill(this.process.pid, 0);
       return true;
     } catch {
       this.process = null;
@@ -294,7 +273,7 @@ export class SidecarManager {
     const running = this.isRunning();
     return {
       running,
-      pid: running ? this.process!.pid ?? null : null,
+      pid: running ? this.process?.pid ?? null : null,
       uptime: running && this.startedAt ? Date.now() - this.startedAt : null,
       connectionState: this.cachedState,
     };
@@ -302,38 +281,46 @@ export class SidecarManager {
 
   /**
    * Query the FRP admin API to determine the actual tunnel connection state.
-   * This distinguishes "process alive but server unreachable" from "truly connected".
+   * Results are cached for STATE_CACHE_TTL ms so multiple callers (tray, renderer)
+   * share a single admin API call per cycle.
    */
   async getConnectionState(): Promise<ConnectionState> {
     if (this.restartTimer) return 'reconnecting';
     if (!this.isRunning()) return 'disconnected';
 
+    // Return cached result if fresh enough
+    if (Date.now() - this.stateCacheTime < STATE_CACHE_TTL) {
+      return this.cachedState;
+    }
+
+    let state: ConnectionState;
     try {
       const status = await this.getAdminStatus() as Record<string, Array<{ status: string }>>;
       const allProxies = Object.values(status).flat();
-      if (allProxies.length === 0) return 'reconnecting';
-      const hasRunning = allProxies.some(p => p.status === 'running');
-      if (hasRunning) return 'running';
-      return 'reconnecting';
+      if (allProxies.length === 0) {
+        state = 'reconnecting';
+      } else {
+        state = allProxies.some(p => p.status === 'running') ? 'connected' : 'reconnecting';
+      }
     } catch {
-      // Admin API not reachable yet (startup) — process is alive so it's reconnecting
-      return this.isRunning() ? 'reconnecting' : 'disconnected';
+      state = 'reconnecting';
     }
+
+    // Update cached state and push to renderer if changed
+    this.emitState(state);
+    return state;
   }
 
   getLogs(): string[] {
-    // Read logs from the log file if available
     if (this.logPath) {
       try {
         const content = fs.readFileSync(this.logPath, 'utf-8');
         const lines = content.split('\n').filter(Boolean);
-        return lines.slice(-100); // Last 100 lines
+        return lines.slice(-100);
       } catch { /* fall through */ }
     }
     return [...this.logs];
   }
-
-  // Admin API calls (localhost:7400)
 
   async getAdminStatus(): Promise<unknown> {
     return this.adminRequest('GET', '/api/status');
@@ -345,13 +332,17 @@ export class SidecarManager {
 
   /**
    * Read the machine_id from the config file for admin API auth.
-   * The frpc binary uses admin:{machine_id} for basic auth.
+   * Cached after first read since machine_id doesn't change at runtime.
    */
   private getAdminAuth(): string {
+    if (this.adminAuthCache) return this.adminAuthCache;
     try {
       const config = fs.readFileSync(CONFIG_PATH, 'utf-8');
       const match = config.match(/machine_id:\s*(\S+)/);
-      if (match) return `admin:${match[1]}`;
+      if (match) {
+        this.adminAuthCache = `admin:${match[1]}`;
+        return this.adminAuthCache;
+      }
     } catch { /* fallback */ }
     return 'admin:admin';
   }
@@ -384,12 +375,6 @@ export class SidecarManager {
     });
   }
 
-  /**
-   * Ensure the qurl-files route exists in the config.
-   * This is a built-in service that can't be removed — it lets the tunnel
-   * always have at least one route so it can start, and means file sharing
-   * works immediately without bootstrapping.
-   */
   ensureFilesRoute(): void {
     this.ensureConfigExists();
     const content = fs.readFileSync(CONFIG_PATH, 'utf-8');
@@ -409,7 +394,6 @@ export class SidecarManager {
   }
 
   private writeDefaultConfig(): void {
-    // Use QURL_TUNNEL_ADDR env var for server address, default to localhost for dev
     const serverAddr = process.env.QURL_TUNNEL_ADDR || '127.0.0.1';
     const serverToken = process.env.QURL_TUNNEL_TOKEN || 'qurl-dev-token';
     const apiUrl = process.env.QURL_API_URL || 'https://api.layerv.ai/v1';

@@ -20,7 +20,7 @@ interface SidecarStatus {
   running: boolean;
   pid: number | null;
   uptime: number | null;
-  connectionState: 'running' | 'reconnecting' | 'disconnected';
+  connectionState: 'connected' | 'reconnecting' | 'disconnected';
 }
 
 interface ShareInfo {

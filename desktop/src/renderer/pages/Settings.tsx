@@ -54,8 +54,7 @@ export function Settings() {
 
   useEffect(() => {
     window.qurl.sidecar.status().then((status) => {
-      const state = status.connectionState || (status.running ? 'running' : 'disconnected');
-      setSidecarState(state === 'running' ? 'connected' : state === 'reconnecting' ? 'reconnecting' : 'disconnected');
+      setSidecarState(status.connectionState || (status.running ? 'connected' : 'disconnected'));
     });
 
     window.qurl.auth.status().then((status) => {

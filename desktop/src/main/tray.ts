@@ -26,10 +26,12 @@ export function createTray(
   tray.setToolTip('QURL Desktop');
 
   const statusLabels: Record<string, string> = {
-    running: '\u{1F7E2} Connected',
+    connected: '\u{1F7E2} Connected',
     reconnecting: '\u{1F7E1} Reconnecting...',
     disconnected: '\u26AA Disconnected',
   };
+
+  let lastMenuState: string | undefined;
 
   const updateMenu = async () => {
     if (!tray || tray.isDestroyed()) {
@@ -38,7 +40,10 @@ export function createTray(
     }
 
     const state = await sidecar.getConnectionState();
-    const isActive = state === 'running' || state === 'reconnecting';
+    if (state === lastMenuState) return;
+    lastMenuState = state;
+
+    const isActive = state === 'connected' || state === 'reconnecting';
 
     const menu = Menu.buildFromTemplate([
       {

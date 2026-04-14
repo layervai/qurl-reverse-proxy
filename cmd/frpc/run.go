@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"sync"
 	"syscall"
 	"time"
 
@@ -34,11 +35,19 @@ const (
 	colorYellow = "\033[33m"
 	colorCyan   = "\033[36m"
 	colorBold   = "\033[1m"
+
+	adminHost = "127.0.0.1"
+	adminPort = 7400
 )
 
 var (
 	logLevel         string
 	strictConfigMode bool
+
+	cachedMachineID string
+	machineIDOnce   sync.Once
+
+	adminClient = &http.Client{Timeout: 2 * time.Second}
 )
 
 var runCmd = &cobra.Command{
@@ -125,9 +134,8 @@ func startFRPFromYAML(cfgPath string, machineID string) error {
 		return fmt.Errorf("generating FRP config: %w", err)
 	}
 
-	// Enable the admin web server for hot-reload support
-	common.WebServer.Addr = "127.0.0.1"
-	common.WebServer.Port = 7400
+	common.WebServer.Addr = adminHost
+	common.WebServer.Port = adminPort
 	common.WebServer.User = "admin"
 	common.WebServer.Password = machineID
 
@@ -160,7 +168,7 @@ func startFRPFromYAML(cfgPath string, machineID string) error {
 		target := fmt.Sprintf("%s:%d", r.LocalIP, r.LocalPort)
 		fmt.Printf("    %s → %s (%s)%s\n", colorCyan, target, r.Name, colorReset)
 	}
-	fmt.Printf("  %sAdmin API at http://127.0.0.1:7400%s\n\n", colorGreen, colorReset)
+	fmt.Printf("  %sAdmin API at http://%s:%d%s\n\n", colorGreen, adminHost, adminPort, colorReset)
 
 	return startService(common, proxyCfgs, visitorCfgs, cfgPath)
 }
@@ -234,30 +242,25 @@ func runHeartbeat(ctx context.Context, client *apiclient.Client, machineID strin
 
 func sendHeartbeat(ctx context.Context, client *apiclient.Client, machineID string, startTime time.Time) {
 	uptime := int64(time.Since(startTime).Seconds())
-	status := probeAdminStatus()
 	if err := client.Heartbeat(ctx, &apiclient.HeartbeatRequest{
 		ConnectorID: machineID,
 		MachineID:   machineID,
 		Uptime:      uptime,
-		Status:      status,
+		Status:      probeAdminStatus(machineID),
 	}); err != nil {
 		log.Warnf("heartbeat failed: %v", err)
 	}
 }
 
 // probeAdminStatus queries the local FRP admin API to determine tunnel connection state.
-// Returns "connected" if any proxy is running, "reconnecting" if proxies exist but none
-// are running, or "starting" if the admin API is not yet reachable.
-func probeAdminStatus() string {
-	adminURL := fmt.Sprintf("http://%s:%d/api/status", "127.0.0.1", 7400)
-	httpClient := &http.Client{Timeout: 2 * time.Second}
-	req, err := http.NewRequest("GET", adminURL, nil)
+func probeAdminStatus(machineID string) string {
+	req, err := http.NewRequest("GET", fmt.Sprintf("http://%s:%d/api/status", adminHost, adminPort), nil)
 	if err != nil {
 		return "starting"
 	}
-	req.SetBasicAuth("admin", getMachineID())
+	req.SetBasicAuth("admin", machineID)
 
-	resp, err := httpClient.Do(req)
+	resp, err := adminClient.Do(req)
 	if err != nil {
 		return "starting"
 	}
@@ -268,8 +271,6 @@ func probeAdminStatus() string {
 		return "starting"
 	}
 
-	// FRP admin API returns {"tcp": [...], "http": [...], ...} where each proxy
-	// has a "status" field of "running", "new", "wait start", "check failed", etc.
 	var statusMap map[string][]struct {
 		Status string `json:"status"`
 	}
@@ -312,11 +313,15 @@ func printBanner() {
 }
 
 func getMachineID() string {
-	id, err := machineid.ProtectedID("qurl-frp")
-	if err != nil {
-		return "unknown"
-	}
-	return id[:8]
+	machineIDOnce.Do(func() {
+		id, err := machineid.ProtectedID("qurl-frp")
+		if err != nil {
+			cachedMachineID = "unknown"
+			return
+		}
+		cachedMachineID = id[:8]
+	})
+	return cachedMachineID
 }
 
 func getConfigFile() string {

@@ -3,6 +3,12 @@ import { DropZone } from '../components/DropZone';
 
 const IMAGE_EXTENSIONS = ['png', 'jpg', 'jpeg', 'gif', 'webp'];
 
+type TunnelState = 'connected' | 'reconnecting' | 'disconnected';
+
+function resolveConnectionState(status: SidecarStatus): TunnelState {
+  return (status.connectionState as TunnelState) || (status.running ? 'connected' : 'disconnected');
+}
+
 function isImageFile(name: string): boolean {
   const ext = name.split('.').pop()?.toLowerCase() || '';
   return IMAGE_EXTENSIONS.includes(ext);
@@ -177,7 +183,6 @@ interface HomeProps {
 
 export function Home({ navigateTo, isGuest }: HomeProps) {
   // --- Stats ---
-  type TunnelState = 'running' | 'reconnecting' | 'disconnected';
   const [tunnelState, setTunnelState] = useState<TunnelState>('disconnected');
   const [resourceCount, setResourceCount] = useState(0);
   const [serviceCount, setServiceCount] = useState(0);
@@ -218,7 +223,7 @@ export function Home({ navigateTo, isGuest }: HomeProps) {
   // Fetch stats on mount
   useEffect(() => {
     window.qurl.sidecar.status().then((s) => {
-      const state = s.connectionState || (s.running ? 'running' : 'disconnected');
+      const state = resolveConnectionState(s);
       stableStatusRef.current = state;
       setTunnelState(state);
     }).catch(() => {
@@ -241,7 +246,7 @@ export function Home({ navigateTo, isGuest }: HomeProps) {
     const interval = setInterval(async () => {
       try {
         const status = await window.qurl.sidecar.status();
-        const state = status.connectionState || (status.running ? 'running' : 'disconnected');
+        const state = resolveConnectionState(status);
         if (state !== stableStatusRef.current) {
           if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
           debounceTimerRef.current = setTimeout(() => {
@@ -268,8 +273,10 @@ export function Home({ navigateTo, isGuest }: HomeProps) {
   useEffect(() => {
     window.qurl.sidecar.onStateChange((state) => {
       const s = state as TunnelState;
-      stableStatusRef.current = s;
-      setTunnelState(s);
+      if (s !== stableStatusRef.current) {
+        stableStatusRef.current = s;
+        setTunnelState(s);
+      }
     });
     return () => window.qurl.sidecar.removeStateListener();
   }, []);
@@ -292,7 +299,7 @@ export function Home({ navigateTo, isGuest }: HomeProps) {
     setTunnelError(null);
     setTunnelLoading(true);
     try {
-      const result = tunnelState === 'running' || tunnelState === 'reconnecting'
+      const result = tunnelState === 'connected' || tunnelState === 'reconnecting'
         ? await window.qurl.sidecar.stop()
         : await window.qurl.sidecar.start();
       if (!result.success) setTunnelError(result.error || 'Failed');
@@ -301,7 +308,7 @@ export function Home({ navigateTo, isGuest }: HomeProps) {
       setTunnelLoading(false);
       try {
         const status = await window.qurl.sidecar.status();
-        const state = status.connectionState || (status.running ? 'running' : 'disconnected');
+        const state = resolveConnectionState(status);
         stableStatusRef.current = state;
         setTunnelState(state);
       } catch {
@@ -408,8 +415,8 @@ export function Home({ navigateTo, isGuest }: HomeProps) {
     } finally { setIsSharing(false); setTimeout(() => setImagePreview(null), 3000); }
   }, [buildOptions]);
 
-  const tunnelIsActive = tunnelState === 'running' || tunnelState === 'reconnecting';
-  const tunnelStatusLabel = tunnelState === 'running' ? 'Connected'
+  const tunnelIsActive = tunnelState === 'connected' || tunnelState === 'reconnecting';
+  const tunnelStatusLabel = tunnelState === 'connected' ? 'Connected'
     : tunnelState === 'reconnecting' ? 'Reconnecting...'
     : 'Offline';
 
@@ -448,7 +455,7 @@ export function Home({ navigateTo, isGuest }: HomeProps) {
         {/* Tunnel status with inline start/stop */}
         <div
           className={`min-w-0 bg-surface-2 rounded-xl p-4 border transition-all duration-200 ${
-            tunnelState === 'running'
+            tunnelState === 'connected'
               ? 'border-[rgba(16,185,129,0.15)] shadow-[0_0_20px_rgba(16,185,129,0.06)]'
               : tunnelState === 'reconnecting'
               ? 'border-[rgba(245,158,11,0.15)] shadow-[0_0_20px_rgba(245,158,11,0.06)]'
@@ -458,12 +465,12 @@ export function Home({ navigateTo, isGuest }: HomeProps) {
         >
           <div className="flex items-center gap-3 mb-2.5">
             <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${
-              tunnelState === 'running' ? 'bg-success-dim'
+              tunnelState === 'connected' ? 'bg-success-dim'
               : tunnelState === 'reconnecting' ? 'bg-warning-dim'
               : 'bg-accent-dim'
             }`}>
               <svg className={`w-4 h-4 ${
-                tunnelState === 'running' ? 'text-success'
+                tunnelState === 'connected' ? 'text-success'
                 : tunnelState === 'reconnecting' ? 'text-warning animate-pulse'
                 : 'text-accent'
               }`} viewBox="0 0 24 24" fill="currentColor">
@@ -474,7 +481,7 @@ export function Home({ navigateTo, isGuest }: HomeProps) {
           </div>
           <div className="flex items-baseline justify-between gap-2">
             <span className={`text-2xl font-bold tracking-tight ${
-              tunnelState === 'running' ? 'text-success'
+              tunnelState === 'connected' ? 'text-success'
               : tunnelState === 'reconnecting' ? 'text-warning'
               : 'text-accent'
             } truncate`}>
