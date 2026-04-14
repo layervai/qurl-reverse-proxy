@@ -10,6 +10,7 @@ type HeartbeatRequest struct {
 	ConnectorID string `json:"connector_id"`
 	MachineID   string `json:"machine_id"`
 	Uptime      int64  `json:"uptime_seconds"`
+	Status      string `json:"status,omitempty"` // "connected", "reconnecting", or "disconnected"
 }
 
 // Heartbeat sends a connector heartbeat to the API.

@@ -245,6 +245,78 @@ func TestGenerateFRPClientConfig_CustomDomains(t *testing.T) {
 	}
 }
 
+func TestGenerateFRPClientConfig_TransportDefaults(t *testing.T) {
+	f := false
+	cfg := &Config{
+		Server: ServerConfig{
+			Addr:          "example.com",
+			Port:          7000,
+			Keepalive:     60,
+			DialTimeout:   10,
+			LoginFailExit: &f,
+		},
+		Routes: []Route{
+			{
+				Name:      "web",
+				Type:      RouteTypeHTTP,
+				LocalIP:   "127.0.0.1",
+				LocalPort: 80,
+				Subdomain: "app",
+			},
+		},
+	}
+
+	common, _, _, err := GenerateFRPClientConfig(cfg, "")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if common.LoginFailExit == nil || *common.LoginFailExit != false {
+		t.Errorf("LoginFailExit = %v, want false", common.LoginFailExit)
+	}
+	if common.Transport.DialServerKeepAlive != 60 {
+		t.Errorf("DialServerKeepAlive = %d, want 60", common.Transport.DialServerKeepAlive)
+	}
+	if common.Transport.DialServerTimeout != 10 {
+		t.Errorf("DialServerTimeout = %d, want 10", common.Transport.DialServerTimeout)
+	}
+}
+
+func TestGenerateFRPClientConfig_CustomTransport(t *testing.T) {
+	tr := true
+	cfg := &Config{
+		Server: ServerConfig{
+			Addr:          "example.com",
+			Port:          7000,
+			Keepalive:     120,
+			DialTimeout:   5,
+			LoginFailExit: &tr,
+		},
+		Routes: []Route{
+			{
+				Name:      "web",
+				Type:      RouteTypeHTTP,
+				LocalIP:   "127.0.0.1",
+				LocalPort: 80,
+				Subdomain: "app",
+			},
+		},
+	}
+
+	common, _, _, err := GenerateFRPClientConfig(cfg, "")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if common.LoginFailExit == nil || *common.LoginFailExit != true {
+		t.Errorf("LoginFailExit = %v, want true", common.LoginFailExit)
+	}
+	if common.Transport.DialServerKeepAlive != 120 {
+		t.Errorf("DialServerKeepAlive = %d, want 120", common.Transport.DialServerKeepAlive)
+	}
+	if common.Transport.DialServerTimeout != 5 {
+		t.Errorf("DialServerTimeout = %d, want 5", common.Transport.DialServerTimeout)
+	}
+}
+
 func TestGenerateFRPClientConfig_UnsupportedType(t *testing.T) {
 	cfg := &Config{
 		Server: ServerConfig{

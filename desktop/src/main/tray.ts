@@ -25,17 +25,29 @@ export function createTray(
 
   tray.setToolTip('QURL Desktop');
 
-  const updateMenu = () => {
+  const statusLabels: Record<string, string> = {
+    connected: '\u{1F7E2} Connected',
+    reconnecting: '\u{1F7E1} Reconnecting...',
+    disconnected: '\u26AA Disconnected',
+  };
+
+  let lastMenuState: string | undefined;
+
+  const updateMenu = async () => {
     if (!tray || tray.isDestroyed()) {
       if (menuInterval) { clearInterval(menuInterval); menuInterval = null; }
       return;
     }
 
-    const isRunning = sidecar.isRunning();
+    const state = await sidecar.getConnectionState();
+    if (state === lastMenuState) return;
+    lastMenuState = state;
+
+    const isActive = state === 'connected' || state === 'reconnecting';
 
     const menu = Menu.buildFromTemplate([
       {
-        label: isRunning ? '\u{1F7E2} Connected' : '\u26AA Disconnected',
+        label: statusLabels[state] || statusLabels.disconnected,
         enabled: false,
       },
       { type: 'separator' },
@@ -45,10 +57,10 @@ export function createTray(
       },
       { type: 'separator' },
       {
-        label: isRunning ? 'Stop Tunnel' : 'Start Tunnel',
+        label: isActive ? 'Stop Tunnel' : 'Start Tunnel',
         click: async () => {
           try {
-            if (isRunning) await sidecar.stop();
+            if (isActive) await sidecar.stop();
             else await sidecar.start();
           } catch { /* errors shown in UI */ }
           updateMenu();

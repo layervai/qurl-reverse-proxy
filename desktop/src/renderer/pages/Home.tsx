@@ -3,6 +3,12 @@ import { DropZone } from '../components/DropZone';
 
 const IMAGE_EXTENSIONS = ['png', 'jpg', 'jpeg', 'gif', 'webp'];
 
+type TunnelState = 'connected' | 'reconnecting' | 'disconnected';
+
+function resolveConnectionState(status: SidecarStatus): TunnelState {
+  return (status.connectionState as TunnelState) || (status.running ? 'connected' : 'disconnected');
+}
+
 function isImageFile(name: string): boolean {
   const ext = name.split('.').pop()?.toLowerCase() || '';
   return IMAGE_EXTENSIONS.includes(ext);
@@ -177,7 +183,7 @@ interface HomeProps {
 
 export function Home({ navigateTo, isGuest }: HomeProps) {
   // --- Stats ---
-  const [tunnelRunning, setTunnelRunning] = useState(false);
+  const [tunnelState, setTunnelState] = useState<TunnelState>('disconnected');
   const [resourceCount, setResourceCount] = useState(0);
   const [serviceCount, setServiceCount] = useState(0);
 
@@ -211,17 +217,18 @@ export function Home({ navigateTo, isGuest }: HomeProps) {
   const [recentResources, setRecentResources] = useState<QURLInfo[]>([]);
 
   // --- Tunnel status (debounced) ---
-  const stableStatusRef = useRef<boolean | null>(null);
+  const stableStatusRef = useRef<TunnelState | null>(null);
   const debounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Fetch stats on mount
   useEffect(() => {
     window.qurl.sidecar.status().then((s) => {
-      stableStatusRef.current = s.running;
-      setTunnelRunning(s.running);
+      const state = resolveConnectionState(s);
+      stableStatusRef.current = state;
+      setTunnelState(state);
     }).catch(() => {
-      stableStatusRef.current = false;
-      setTunnelRunning(false);
+      stableStatusRef.current = 'disconnected';
+      setTunnelState('disconnected');
     });
 
     window.qurl.tunnels.list().then((list) => setServiceCount(list.length)).catch(() => {});
@@ -235,22 +242,23 @@ export function Home({ navigateTo, isGuest }: HomeProps) {
       }).catch(() => {});
     }
 
-    // Poll tunnel status
+    // Poll tunnel status (safety net — push events handle most updates)
     const interval = setInterval(async () => {
       try {
         const status = await window.qurl.sidecar.status();
-        if (status.running !== stableStatusRef.current) {
+        const state = resolveConnectionState(status);
+        if (state !== stableStatusRef.current) {
           if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
           debounceTimerRef.current = setTimeout(() => {
-            stableStatusRef.current = status.running;
-            setTunnelRunning(status.running);
+            stableStatusRef.current = state;
+            setTunnelState(state);
           }, 2000);
         }
       } catch {
         if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
         debounceTimerRef.current = setTimeout(() => {
-          stableStatusRef.current = false;
-          setTunnelRunning(false);
+          stableStatusRef.current = 'disconnected';
+          setTunnelState('disconnected');
         }, 2000);
       }
     }, 5000);
@@ -260,6 +268,18 @@ export function Home({ navigateTo, isGuest }: HomeProps) {
       if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
     };
   }, [isGuest]);
+
+  // Subscribe to push-based state changes from auto-restart system
+  useEffect(() => {
+    window.qurl.sidecar.onStateChange((state) => {
+      const s = state as TunnelState;
+      if (s !== stableStatusRef.current) {
+        stableStatusRef.current = s;
+        setTunnelState(s);
+      }
+    });
+    return () => window.qurl.sidecar.removeStateListener();
+  }, []);
 
   // Check file sharing service status
   const [fileSharePort, setFileSharePort] = useState<number | null>(null);
@@ -279,7 +299,7 @@ export function Home({ navigateTo, isGuest }: HomeProps) {
     setTunnelError(null);
     setTunnelLoading(true);
     try {
-      const result = tunnelRunning
+      const result = tunnelState === 'connected' || tunnelState === 'reconnecting'
         ? await window.qurl.sidecar.stop()
         : await window.qurl.sidecar.start();
       if (!result.success) setTunnelError(result.error || 'Failed');
@@ -288,14 +308,15 @@ export function Home({ navigateTo, isGuest }: HomeProps) {
       setTunnelLoading(false);
       try {
         const status = await window.qurl.sidecar.status();
-        stableStatusRef.current = status.running;
-        setTunnelRunning(status.running);
+        const state = resolveConnectionState(status);
+        stableStatusRef.current = state;
+        setTunnelState(state);
       } catch {
-        stableStatusRef.current = false;
-        setTunnelRunning(false);
+        stableStatusRef.current = 'disconnected';
+        setTunnelState('disconnected');
       }
     }
-  }, [tunnelRunning]);
+  }, [tunnelState]);
 
   const handleToggleFileSharing = useCallback(async (enabled: boolean) => {
     setTogglingFileShare(true);
@@ -394,7 +415,10 @@ export function Home({ navigateTo, isGuest }: HomeProps) {
     } finally { setIsSharing(false); setTimeout(() => setImagePreview(null), 3000); }
   }, [buildOptions]);
 
-  const tunnelStatusLabel = tunnelRunning ? 'Connected' : 'Offline';
+  const tunnelIsActive = tunnelState === 'connected' || tunnelState === 'reconnecting';
+  const tunnelStatusLabel = tunnelState === 'connected' ? 'Connected'
+    : tunnelState === 'reconnecting' ? 'Reconnecting...'
+    : 'Offline';
 
   return (
     <div className="flex flex-col gap-5">
@@ -431,22 +455,36 @@ export function Home({ navigateTo, isGuest }: HomeProps) {
         {/* Tunnel status with inline start/stop */}
         <div
           className={`min-w-0 bg-surface-2 rounded-xl p-4 border transition-all duration-200 flex flex-col ${
-            tunnelRunning
+            tunnelState === 'connected'
               ? 'border-[rgba(16,185,129,0.15)] shadow-[0_0_20px_rgba(16,185,129,0.06)]'
+              : tunnelState === 'reconnecting'
+              ? 'border-[rgba(245,158,11,0.15)] shadow-[0_0_20px_rgba(245,158,11,0.06)]'
               : 'border-glass-border'
           }`}
           style={{ animation: 'fadeIn 400ms cubic-bezier(0.16, 1, 0.3, 1) 120ms both' }}
         >
           <div className="flex items-center gap-3 mb-2.5">
-            <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${tunnelRunning ? 'bg-success-dim' : 'bg-accent-dim'}`}>
-              <svg className={`w-4 h-4 ${tunnelRunning ? 'text-success' : 'text-accent'}`} viewBox="0 0 24 24" fill="currentColor">
+            <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${
+              tunnelState === 'connected' ? 'bg-success-dim'
+              : tunnelState === 'reconnecting' ? 'bg-warning-dim'
+              : 'bg-accent-dim'
+            }`}>
+              <svg className={`w-4 h-4 ${
+                tunnelState === 'connected' ? 'text-success'
+                : tunnelState === 'reconnecting' ? 'text-warning animate-pulse'
+                : 'text-accent'
+              }`} viewBox="0 0 24 24" fill="currentColor">
                 <path d="M1 9l2 2c4.97-4.97 13.03-4.97 18 0l2-2C16.93 2.93 7.08 2.93 1 9zm8 8l3 3 3-3c-1.65-1.66-4.34-1.66-6 0zm-4-4l2 2c2.76-2.76 7.24-2.76 10 0l2-2C15.14 9.14 8.87 9.14 5 13z" />
               </svg>
             </div>
             <span className="text-xs text-text-muted font-medium">Tunnel</span>
           </div>
           <div className="flex items-baseline justify-between gap-2 min-w-0">
-            <span className={`text-2xl font-bold tracking-tight ${tunnelRunning ? 'text-success' : 'text-accent'} truncate`}>
+            <span className={`text-2xl font-bold tracking-tight ${
+              tunnelState === 'connected' ? 'text-success'
+              : tunnelState === 'reconnecting' ? 'text-warning'
+              : 'text-accent'
+            } truncate`}>
               {tunnelStatusLabel}
             </span>
             <button
@@ -454,12 +492,12 @@ export function Home({ navigateTo, isGuest }: HomeProps) {
               disabled={tunnelLoading}
               className={`px-3.5 py-1.5 rounded-lg font-semibold text-[12px] shrink-0 transition-all duration-150 ${
                 tunnelLoading ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'
-              } ${tunnelRunning
+              } ${tunnelIsActive
                 ? 'bg-danger-dim text-danger hover:bg-[rgba(239,68,68,0.25)]'
                 : 'bg-gradient-to-r from-accent to-[#D406B9] text-white hover:shadow-[0_0_16px_rgba(0,153,255,0.2)]'
               }`}
             >
-              {tunnelLoading ? '...' : tunnelRunning ? 'Stop' : 'Start'}
+              {tunnelLoading ? '...' : tunnelIsActive ? 'Stop' : 'Start'}
             </button>
           </div>
           {serviceCount > 0 && (
@@ -501,7 +539,7 @@ export function Home({ navigateTo, isGuest }: HomeProps) {
               }`} />
             </button>
           </div>
-          {fileSharingEnabled && fileSharePort && tunnelRunning && activeShareCount > 0 && (
+          {fileSharingEnabled && fileSharePort && tunnelIsActive && activeShareCount > 0 && (
             <button
               onClick={() => window.qurl.dialog.openExternal(`http://127.0.0.1:${fileSharePort}`)}
               className="text-[11px] text-accent hover:underline cursor-pointer bg-transparent mt-1"

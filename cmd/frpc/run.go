@@ -2,11 +2,14 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"os/signal"
 	"path/filepath"
+	"sync"
 	"syscall"
 	"time"
 
@@ -32,11 +35,19 @@ const (
 	colorYellow = "\033[33m"
 	colorCyan   = "\033[36m"
 	colorBold   = "\033[1m"
+
+	adminHost = "127.0.0.1"
+	adminPort = 7400
 )
 
 var (
 	logLevel         string
 	strictConfigMode bool
+
+	cachedMachineID string
+	machineIDOnce   sync.Once
+
+	adminClient = &http.Client{Timeout: 2 * time.Second}
 )
 
 var runCmd = &cobra.Command{
@@ -123,9 +134,8 @@ func startFRPFromYAML(cfgPath string, machineID string) error {
 		return fmt.Errorf("generating FRP config: %w", err)
 	}
 
-	// Enable the admin web server for hot-reload support
-	common.WebServer.Addr = "127.0.0.1"
-	common.WebServer.Port = 7400
+	common.WebServer.Addr = adminHost
+	common.WebServer.Port = adminPort
 	common.WebServer.User = "admin"
 	common.WebServer.Password = machineID
 
@@ -158,7 +168,7 @@ func startFRPFromYAML(cfgPath string, machineID string) error {
 		target := fmt.Sprintf("%s:%d", r.LocalIP, r.LocalPort)
 		fmt.Printf("    %s → %s (%s)%s\n", colorCyan, target, r.Name, colorReset)
 	}
-	fmt.Printf("  %sAdmin API at http://127.0.0.1:7400%s\n\n", colorGreen, colorReset)
+	fmt.Printf("  %sAdmin API at http://%s:%d%s\n\n", colorGreen, adminHost, adminPort, colorReset)
 
 	return startService(common, proxyCfgs, visitorCfgs, cfgPath)
 }
@@ -200,16 +210,14 @@ func startService(
 		go runHeartbeat(ctx, apiClient, machineID)
 	}
 
-	shouldGracefulClose := cfg.Transport.Protocol == "kcp" || cfg.Transport.Protocol == "quic"
-	if shouldGracefulClose {
-		go func() {
-			ch := make(chan os.Signal, 1)
-			signal.Notify(ch, syscall.SIGINT, syscall.SIGTERM)
-			<-ch
-			cancel()
-			svr.GracefulClose(500 * time.Millisecond)
-		}()
-	}
+	// Graceful shutdown on SIGINT/SIGTERM for all transport protocols.
+	go func() {
+		ch := make(chan os.Signal, 1)
+		signal.Notify(ch, syscall.SIGINT, syscall.SIGTERM)
+		<-ch
+		cancel()
+		svr.GracefulClose(500 * time.Millisecond)
+	}()
 	return svr.Run(ctx)
 }
 
@@ -238,9 +246,51 @@ func sendHeartbeat(ctx context.Context, client *apiclient.Client, machineID stri
 		ConnectorID: machineID,
 		MachineID:   machineID,
 		Uptime:      uptime,
+		Status:      probeAdminStatus(machineID),
 	}); err != nil {
 		log.Warnf("heartbeat failed: %v", err)
 	}
+}
+
+// probeAdminStatus queries the local FRP admin API to determine tunnel connection state.
+func probeAdminStatus(machineID string) string {
+	req, err := http.NewRequest("GET", fmt.Sprintf("http://%s:%d/api/status", adminHost, adminPort), nil)
+	if err != nil {
+		return "starting"
+	}
+	req.SetBasicAuth("admin", machineID)
+
+	resp, err := adminClient.Do(req)
+	if err != nil {
+		return "starting"
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "starting"
+	}
+
+	var statusMap map[string][]struct {
+		Status string `json:"status"`
+	}
+	if err := json.Unmarshal(body, &statusMap); err != nil {
+		return "starting"
+	}
+
+	hasProxy := false
+	for _, proxies := range statusMap {
+		for _, p := range proxies {
+			hasProxy = true
+			if p.Status == "running" {
+				return "connected"
+			}
+		}
+	}
+	if hasProxy {
+		return "reconnecting"
+	}
+	return "starting"
 }
 
 // startFRPLegacy delegates to FRP's built-in Cobra for legacy TOML configs.
@@ -263,11 +313,15 @@ func printBanner() {
 }
 
 func getMachineID() string {
-	id, err := machineid.ProtectedID("qurl-frp")
-	if err != nil {
-		return "unknown"
-	}
-	return id[:8]
+	machineIDOnce.Do(func() {
+		id, err := machineid.ProtectedID("qurl-frp")
+		if err != nil {
+			cachedMachineID = "unknown"
+			return
+		}
+		cachedMachineID = id[:8]
+	})
+	return cachedMachineID
 }
 
 func getConfigFile() string {
