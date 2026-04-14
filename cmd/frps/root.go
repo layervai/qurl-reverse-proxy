@@ -17,6 +17,9 @@ package main
 import (
 	"context"
 	"fmt"
+	"log/slog"
+	"net"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
@@ -30,6 +33,8 @@ import (
 	"github.com/fatedier/frp/pkg/util/log"
 	"github.com/fatedier/frp/server"
 
+	"github.com/layervai/qurl-reverse-proxy/pkg/apiclient"
+	"github.com/layervai/qurl-reverse-proxy/pkg/tunnelauth"
 	nhpversion "github.com/layervai/qurl-reverse-proxy/pkg/version"
 )
 
@@ -145,6 +150,8 @@ func Execute() {
 	}
 }
 
+const tunnelAuthAddr = "127.0.0.1:7600"
+
 func runServer(cfg *v1.ServerConfig) (err error) {
 	log.InitLogger(cfg.Log.To, cfg.Log.Level, int(cfg.Log.MaxDays), cfg.Log.DisablePrintColor)
 
@@ -154,6 +161,15 @@ func runServer(cfg *v1.ServerConfig) (err error) {
 		log.Infof("frps uses command line arguments for config")
 	}
 
+	// Start tunnel auth plugin if QURL API credentials are configured.
+	authCleanup, err := startTunnelAuth(cfg)
+	if err != nil {
+		return fmt.Errorf("tunnel auth: %w", err)
+	}
+	if authCleanup != nil {
+		defer authCleanup()
+	}
+
 	svr, err := server.NewService(cfg)
 	if err != nil {
 		return err
@@ -161,4 +177,52 @@ func runServer(cfg *v1.ServerConfig) (err error) {
 	log.Infof("frps started successfully")
 	svr.Run(context.Background())
 	return
+}
+
+// startTunnelAuth sets up the tunnel auth resilience layer if QURL_API_URL
+// and QURL_API_TOKEN are set. It starts a local HTTP server that FRP calls
+// as a server plugin for NewProxy events. Returns a cleanup function and
+// any error. Returns (nil, nil) if the env vars are not set (auth disabled).
+func startTunnelAuth(cfg *v1.ServerConfig) (cleanup func(), err error) {
+	apiURL := os.Getenv("QURL_API_URL")
+	apiToken := os.Getenv("QURL_API_TOKEN")
+	if apiURL == "" || apiToken == "" {
+		log.Infof("tunnel auth disabled (QURL_API_URL or QURL_API_TOKEN not set)")
+		return nil, nil
+	}
+
+	logger := slog.Default()
+	client := apiclient.New(apiURL, apiToken)
+	authorizer := tunnelauth.New(client, tunnelauth.WithLogger(logger))
+	handler := tunnelauth.NewHandler(authorizer, logger)
+
+	mux := http.NewServeMux()
+	mux.Handle("/internal/v1/tunnel/auth", handler)
+
+	ln, err := net.Listen("tcp", tunnelAuthAddr)
+	if err != nil {
+		return nil, fmt.Errorf("listen %s: %w", tunnelAuthAddr, err)
+	}
+
+	srv := &http.Server{Handler: mux}
+	go func() {
+		if err := srv.Serve(ln); err != nil && err != http.ErrServerClosed {
+			log.Warnf("tunnel auth server error: %v", err)
+		}
+	}()
+
+	// Register the plugin with FRP's server config.
+	cfg.HTTPPlugins = append(cfg.HTTPPlugins, v1.HTTPPluginOptions{
+		Name: "tunnel-auth",
+		Addr: tunnelAuthAddr,
+		Path: "/internal/v1/tunnel/auth",
+		Ops:  []string{"NewProxy"},
+	})
+
+	log.Infof("tunnel auth enabled at %s (api: %s)", tunnelAuthAddr, apiURL)
+
+	return func() {
+		authorizer.Close()
+		srv.Close()
+	}, nil
 }
