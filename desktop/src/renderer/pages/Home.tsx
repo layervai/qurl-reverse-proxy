@@ -144,7 +144,7 @@ function StatCard({
   return (
     <button
       onClick={onClick}
-      className={`min-w-0 bg-surface-2 rounded-xl p-4 border border-glass-border ${c.glow} hover:border-glass-border-hover cursor-pointer transition-all duration-200 text-left group`}
+      className={`min-w-0 bg-surface-2 rounded-xl p-4 border border-glass-border ${c.glow} hover:border-glass-border-hover cursor-pointer transition-all duration-200 text-left group h-full`}
       style={{ animation: `fadeIn 400ms cubic-bezier(0.16, 1, 0.3, 1) ${delay}ms both` }}
     >
       <div className="flex items-center gap-3 mb-2.5">
@@ -416,7 +416,7 @@ export function Home({ navigateTo, isGuest }: HomeProps) {
       </div>
 
       {/* ── Status cards ── */}
-      <div className="grid grid-cols-3 gap-3">
+      <div className="grid grid-cols-2 lg:grid-cols-3 gap-3">
         {/* Qurls count */}
         <StatCard
           icon="M12 1L3 5v6c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V5l-9-4zm0 10.99h7c-.53 4.12-3.28 7.79-7 8.94V12H5V6.3l7-3.11v8.8z"
@@ -430,7 +430,7 @@ export function Home({ navigateTo, isGuest }: HomeProps) {
 
         {/* Tunnel status with inline start/stop */}
         <div
-          className={`min-w-0 bg-surface-2 rounded-xl p-4 border transition-all duration-200 ${
+          className={`min-w-0 bg-surface-2 rounded-xl p-4 border transition-all duration-200 flex flex-col ${
             tunnelRunning
               ? 'border-[rgba(16,185,129,0.15)] shadow-[0_0_20px_rgba(16,185,129,0.06)]'
               : 'border-glass-border'
@@ -445,7 +445,7 @@ export function Home({ navigateTo, isGuest }: HomeProps) {
             </div>
             <span className="text-xs text-text-muted font-medium">Tunnel</span>
           </div>
-          <div className="flex items-baseline justify-between gap-2">
+          <div className="flex items-baseline justify-between gap-2 min-w-0">
             <span className={`text-2xl font-bold tracking-tight ${tunnelRunning ? 'text-success' : 'text-accent'} truncate`}>
               {tunnelStatusLabel}
             </span>
@@ -472,7 +472,7 @@ export function Home({ navigateTo, isGuest }: HomeProps) {
 
         {/* File sharing toggle */}
         <div
-          className={`min-w-0 bg-surface-2 rounded-xl p-4 border border-glass-border transition-all duration-200 ${
+          className={`min-w-0 bg-surface-2 rounded-xl p-4 border border-glass-border transition-all duration-200 flex flex-col ${
             fileSharingEnabled ? 'shadow-[0_0_20px_rgba(245,158,11,0.06)]' : ''
           }`}
           style={{ animation: 'fadeIn 400ms cubic-bezier(0.16, 1, 0.3, 1) 190ms both' }}
@@ -485,8 +485,8 @@ export function Home({ navigateTo, isGuest }: HomeProps) {
             </div>
             <span className="text-xs text-text-muted font-medium">File Sharing</span>
           </div>
-          <div className="flex items-center justify-between">
-            <span className={`text-lg font-bold tracking-tight ${fileSharingEnabled ? 'text-warning' : 'text-text-muted'}`}>
+          <div className="flex items-center justify-between gap-2 min-w-0">
+            <span className={`text-lg font-bold tracking-tight truncate ${fileSharingEnabled ? 'text-warning' : 'text-text-muted'}`}>
               {fileSharingEnabled ? 'Enabled' : 'Disabled'}
             </span>
             <button
