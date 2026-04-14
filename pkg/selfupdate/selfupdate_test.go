@@ -721,12 +721,9 @@ func TestEndToEnd_CheckDownloadApply(t *testing.T) {
 	})
 	checksumData := testSHA256SUMS(assetName("v1.1.0"), tarballData)
 
-	// Serve the API, tarball, and SHA256SUMS.
+	// Declare release before the server so the handler closure captures it.
 	assetPath := "/download/release.tar.gz"
-	release := testRelease("v1.1.0", asset{
-		Name:               assetName("v1.1.0"),
-		BrowserDownloadURL: "", // will be set below
-	})
+	var release releaseResponse
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
@@ -742,21 +739,10 @@ func TestEndToEnd_CheckDownloadApply(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	// Set the asset URL now that we have the server URL.
-	release.Assets[0].BrowserDownloadURL = srv.URL + assetPath
-
-	// Re-register handler with updated release.
-	srv.Config.Handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		switch r.URL.Path {
-		case "/api":
-			serveJSON(t, w, release)
-		case assetPath:
-			serveBytes(t, w, tarballData)
-		case "/v1.1.0/SHA256SUMS":
-			serveBytes(t, w, checksumData)
-		default:
-			w.WriteHeader(http.StatusNotFound)
-		}
+	// Populate release now that srv.URL is known.
+	release = testRelease("v1.1.0", asset{
+		Name:               assetName("v1.1.0"),
+		BrowserDownloadURL: srv.URL + assetPath,
 	})
 
 	// Setup install directory with an existing binary.

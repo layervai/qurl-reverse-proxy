@@ -80,7 +80,30 @@ func (u *Updater) httpClient() *http.Client {
 	if u.HTTPClient != nil {
 		return u.HTTPClient
 	}
-	return &http.Client{Timeout: 30 * time.Second}
+	// Cache the default client so TCP/TLS connections are reused across
+	// sequential requests (tarball download, checksum fetch, etc.).
+	u.HTTPClient = &http.Client{Timeout: 30 * time.Second}
+	return u.HTTPClient
+}
+
+// doGet performs an authenticated GET request and returns the response.
+// The caller is responsible for closing resp.Body.
+func (u *Updater) doGet(ctx context.Context, url, userAgent string) (*http.Response, error) {
+	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("User-Agent", userAgent)
+
+	resp, err := u.httpClient().Do(req)
+	if err != nil {
+		return nil, err
+	}
+	if resp.StatusCode != http.StatusOK {
+		resp.Body.Close()
+		return nil, fmt.Errorf("HTTP %d from %s", resp.StatusCode, url)
+	}
+	return resp, nil
 }
 
 func (u *Updater) apiEndpoint() string {
@@ -123,22 +146,12 @@ func (u *Updater) CheckForUpdate(ctx context.Context, currentVersion string) (*U
 		}, nil
 	}
 
-	req, err := http.NewRequestWithContext(ctx, "GET", u.apiEndpoint(), nil)
-	if err != nil {
-		return nil, fmt.Errorf("create request: %w", err)
-	}
-	req.Header.Set("Accept", "application/vnd.github+json")
-	req.Header.Set("User-Agent", "qurl-frpc/"+currentVersion)
-
-	resp, err := u.httpClient().Do(req)
+	ua := "qurl-frpc/" + currentVersion
+	resp, err := u.doGet(ctx, u.apiEndpoint(), ua)
 	if err != nil {
 		return nil, fmt.Errorf("fetch latest release: %w", err)
 	}
 	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("GitHub API returned %d", resp.StatusCode)
-	}
 
 	var release releaseResponse
 	if err := json.NewDecoder(resp.Body).Decode(&release); err != nil {
@@ -188,17 +201,16 @@ func (u *Updater) Download(ctx context.Context, info *UpdateInfo, destDir string
 	}
 
 	cleanup := func() { _ = os.RemoveAll(stagingDir) }
+	ua := "qurl-frpc/" + info.CurrentVersion
 
-	// Download the tarball to a temp file so we can verify before extracting.
 	tarballPath := filepath.Join(stagingDir, "release.tar.gz")
-	if err := u.downloadToFile(ctx, info.AssetURL, info.CurrentVersion, tarballPath); err != nil {
+	if err := u.downloadToFile(ctx, info.AssetURL, ua, tarballPath); err != nil {
 		cleanup()
 		return "", fmt.Errorf("download release: %w", err)
 	}
 
-	// Verify checksum.
 	wantAsset := assetName(info.LatestVersion)
-	if err := u.verifyChecksum(ctx, info.LatestVersion, info.CurrentVersion, tarballPath, wantAsset); err != nil {
+	if err := u.verifyChecksum(ctx, info.LatestVersion, ua, tarballPath, wantAsset); err != nil {
 		cleanup()
 		return "", err
 	}
@@ -209,8 +221,7 @@ func (u *Updater) Download(ctx context.Context, info *UpdateInfo, destDir string
 		cleanup()
 		return "", fmt.Errorf("open tarball: %w", err)
 	}
-	limitedReader := io.LimitReader(f, maxDownloadSize)
-	extractErr := extractTarGz(limitedReader, stagingDir, u.binaryName())
+	extractErr := extractTarGz(f, stagingDir, u.binaryName())
 	_ = f.Close()
 	_ = os.Remove(tarballPath)
 
@@ -230,22 +241,12 @@ func (u *Updater) Download(ctx context.Context, info *UpdateInfo, destDir string
 }
 
 // downloadToFile fetches url and writes the response body to destPath.
-func (u *Updater) downloadToFile(ctx context.Context, url, version, destPath string) error {
-	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
-	if err != nil {
-		return fmt.Errorf("create request: %w", err)
-	}
-	req.Header.Set("User-Agent", "qurl-frpc/"+version)
-
-	resp, err := u.httpClient().Do(req)
+func (u *Updater) downloadToFile(ctx context.Context, url, ua, destPath string) error {
+	resp, err := u.doGet(ctx, url, ua)
 	if err != nil {
 		return err
 	}
 	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("download returned %d", resp.StatusCode)
-	}
 
 	f, err := os.Create(destPath)
 	if err != nil {
@@ -270,8 +271,8 @@ func (u *Updater) checksumURL(tag string) string {
 
 // verifyChecksum downloads the SHA256SUMS file for the release and verifies the
 // tarball hash matches.
-func (u *Updater) verifyChecksum(ctx context.Context, tag, version, tarballPath, expectedAsset string) error {
-	expected, err := u.fetchExpectedHash(ctx, tag, version, expectedAsset)
+func (u *Updater) verifyChecksum(ctx context.Context, tag, ua, tarballPath, expectedAsset string) error {
+	expected, err := u.fetchExpectedHash(ctx, tag, ua, expectedAsset)
 	if err != nil {
 		return fmt.Errorf("checksum verification failed: %w", err)
 	}
@@ -289,28 +290,16 @@ func (u *Updater) verifyChecksum(ctx context.Context, tag, version, tarballPath,
 }
 
 // fetchExpectedHash downloads SHA256SUMS and returns the expected hash for assetName.
-func (u *Updater) fetchExpectedHash(ctx context.Context, tag, version, wantAsset string) (string, error) {
-	req, err := http.NewRequestWithContext(ctx, "GET", u.checksumURL(tag), nil)
-	if err != nil {
-		return "", fmt.Errorf("create request: %w", err)
-	}
-	req.Header.Set("User-Agent", "qurl-frpc/"+version)
-
-	resp, err := u.httpClient().Do(req)
+func (u *Updater) fetchExpectedHash(ctx context.Context, tag, ua, wantAsset string) (string, error) {
+	resp, err := u.doGet(ctx, u.checksumURL(tag), ua)
 	if err != nil {
 		return "", fmt.Errorf("fetch SHA256SUMS: %w", err)
 	}
 	defer resp.Body.Close()
 
-	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("SHA256SUMS not available (HTTP %d)", resp.StatusCode)
-	}
-
 	scanner := bufio.NewScanner(resp.Body)
 	for scanner.Scan() {
-		line := scanner.Text()
-		// Format: "<hex-hash>  <filename>" or "<hex-hash> <filename>"
-		parts := strings.Fields(line)
+		parts := strings.Fields(scanner.Text())
 		if len(parts) >= 2 && parts[len(parts)-1] == wantAsset {
 			return parts[0], nil
 		}
