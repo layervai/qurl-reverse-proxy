@@ -29,6 +29,22 @@ info() { printf "${CYAN}==> %s${RESET}\n" "$1"; }
 success() { printf "${GREEN}==> %s${RESET}\n" "$1"; }
 error() { printf "${RED}Error: %s${RESET}\n" "$1" >&2; exit 1; }
 
+# Download a URL to a local file. Exits on failure unless quiet=true.
+# Usage: fetch_file URL DEST [quiet]
+fetch_file() {
+  _url="$1" _dest="$2" _quiet="${3:-false}"
+  if command -v curl >/dev/null 2>&1; then
+    curl -sSL -o "$_dest" "$_url" 2>/dev/null
+  elif command -v wget >/dev/null 2>&1; then
+    wget -q -O "$_dest" "$_url" 2>/dev/null
+  else
+    error "Neither curl nor wget found. Please install one of them."
+  fi
+  if [ "$_quiet" != "true" ] && { [ ! -f "$_dest" ] || [ ! -s "$_dest" ]; }; then
+    error "Download failed. URL: ${_url}"
+  fi
+}
+
 # --- Parse arguments ---
 TOKEN=""
 while [ $# -gt 0 ]; do
@@ -89,46 +105,33 @@ get_latest_version() {
 download_tarball() {
   TARBALL="qurl-reverse-proxy-${VERSION}-${GOOS}-${GOARCH}.tar.gz"
   DOWNLOAD_URL="https://github.com/${REPO}/releases/download/${VERSION}/${TARBALL}"
-  TMPDIR=$(mktemp -d)
+  DL_DIR=$(mktemp -d)
 
   info "Downloading ${TARBALL}..."
-
-  if command -v curl >/dev/null 2>&1; then
-    curl -sSL -o "${TMPDIR}/${TARBALL}" "$DOWNLOAD_URL" || error "Download failed. URL: ${DOWNLOAD_URL}"
-  else
-    wget -q -O "${TMPDIR}/${TARBALL}" "$DOWNLOAD_URL" || error "Download failed. URL: ${DOWNLOAD_URL}"
-  fi
+  fetch_file "$DOWNLOAD_URL" "${DL_DIR}/${TARBALL}"
 }
 
 # --- Verify checksum ---
 verify_checksum() {
-  CHECKSUM_URL="https://github.com/${REPO}/releases/download/${VERSION}/SHA256SUMS"
-
   info "Verifying checksum..."
 
-  # Download SHA256SUMS
-  if command -v curl >/dev/null 2>&1; then
-    curl -sSL -o "${TMPDIR}/SHA256SUMS" "$CHECKSUM_URL" 2>/dev/null
-  else
-    wget -q -O "${TMPDIR}/SHA256SUMS" "$CHECKSUM_URL" 2>/dev/null
-  fi
+  fetch_file "https://github.com/${REPO}/releases/download/${VERSION}/SHA256SUMS" "${DL_DIR}/SHA256SUMS" true
 
-  if [ ! -f "${TMPDIR}/SHA256SUMS" ] || [ ! -s "${TMPDIR}/SHA256SUMS" ]; then
+  if [ ! -f "${DL_DIR}/SHA256SUMS" ] || [ ! -s "${DL_DIR}/SHA256SUMS" ]; then
     info "No SHA256SUMS found in release — skipping checksum verification"
     return 0
   fi
 
-  # Compute hash of the downloaded tarball
   if command -v sha256sum >/dev/null 2>&1; then
-    ACTUAL_HASH=$(sha256sum "${TMPDIR}/${TARBALL}" | awk '{print $1}')
+    ACTUAL_HASH=$(sha256sum "${DL_DIR}/${TARBALL}" | awk '{print $1}')
   elif command -v shasum >/dev/null 2>&1; then
-    ACTUAL_HASH=$(shasum -a 256 "${TMPDIR}/${TARBALL}" | awk '{print $1}')
+    ACTUAL_HASH=$(shasum -a 256 "${DL_DIR}/${TARBALL}" | awk '{print $1}')
   else
     info "No sha256sum or shasum available — skipping checksum verification"
     return 0
   fi
 
-  EXPECTED_HASH=$(grep "${TARBALL}" "${TMPDIR}/SHA256SUMS" | awk '{print $1}')
+  EXPECTED_HASH=$(grep "${TARBALL}" "${DL_DIR}/SHA256SUMS" | awk '{print $1}')
 
   if [ -z "$EXPECTED_HASH" ]; then
     info "Tarball not found in SHA256SUMS — skipping checksum verification"
@@ -141,17 +144,12 @@ verify_checksum() {
 
   success "Checksum verified"
 
-  # GPG signature verification (best-effort)
+  # GPG signature verification (best-effort, only if gpg is installed)
   if command -v gpg >/dev/null 2>&1; then
-    SIGNATURE_URL="https://github.com/${REPO}/releases/download/${VERSION}/SHA256SUMS.asc"
-    if command -v curl >/dev/null 2>&1; then
-      curl -sSL -o "${TMPDIR}/SHA256SUMS.asc" "$SIGNATURE_URL" 2>/dev/null
-    else
-      wget -q -O "${TMPDIR}/SHA256SUMS.asc" "$SIGNATURE_URL" 2>/dev/null
-    fi
+    fetch_file "https://github.com/${REPO}/releases/download/${VERSION}/SHA256SUMS.asc" "${DL_DIR}/SHA256SUMS.asc" true
 
-    if [ -f "${TMPDIR}/SHA256SUMS.asc" ] && [ -s "${TMPDIR}/SHA256SUMS.asc" ]; then
-      if gpg --verify "${TMPDIR}/SHA256SUMS.asc" "${TMPDIR}/SHA256SUMS" 2>/dev/null; then
+    if [ -f "${DL_DIR}/SHA256SUMS.asc" ] && [ -s "${DL_DIR}/SHA256SUMS.asc" ]; then
+      if gpg --verify "${DL_DIR}/SHA256SUMS.asc" "${DL_DIR}/SHA256SUMS" 2>/dev/null; then
         success "GPG signature verified"
       else
         info "GPG signature could not be verified (signing key may not be imported)"
@@ -172,9 +170,9 @@ extract_tarball() {
     sudo chown "$(whoami)" "$INSTALL_DIR"
   fi
 
-  tar xzf "${TMPDIR}/${TARBALL}" -C "$INSTALL_DIR" --strip-components=0
+  tar xzf "${DL_DIR}/${TARBALL}" -C "$INSTALL_DIR" --strip-components=0
 
-  rm -rf "$TMPDIR"
+  rm -rf "$DL_DIR"
 }
 
 # --- Create symlink ---

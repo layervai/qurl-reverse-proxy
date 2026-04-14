@@ -340,7 +340,7 @@ export class UpdateManager {
         // Download in background if asset is available.
         if (asset) {
           try {
-            await this.downloadUpdate(asset.browser_download_url, latestVersion, assetName);
+            await this.downloadUpdate({ url: asset.browser_download_url, tag: latestVersion, assetName });
             tunnelUpdate.downloaded = true;
           } catch (err) {
             console.error('[updater] tunnel download failed:', (err as Error).message);
@@ -475,7 +475,7 @@ export class UpdateManager {
     });
   }
 
-  private async downloadUpdate(assetUrl: string, tag: string, assetName: string): Promise<void> {
+  private async downloadUpdate(opts: { url: string; tag: string; assetName: string }): Promise<void> {
     if (fs.existsSync(STAGING_DIR)) {
       fs.rmSync(STAGING_DIR, { recursive: true });
     }
@@ -483,19 +483,20 @@ export class UpdateManager {
 
     const tarballPath = path.join(STAGING_DIR, 'release.tar.gz');
 
-    await this.downloadFile(assetUrl, tarballPath);
-
-    // Verify checksum against SHA256SUMS from the release.
-    await this.verifyChecksum(tarballPath, tag, assetName);
-
-    await this.extractTarGz(tarballPath);
-
-    fs.unlinkSync(tarballPath);
+    try {
+      await this.downloadFile(opts.url, tarballPath);
+      await this.verifyChecksum(tarballPath, opts.tag, opts.assetName);
+      await this.extractTarGz(tarballPath);
+      fs.unlinkSync(tarballPath);
+    } catch (err) {
+      try { fs.rmSync(STAGING_DIR, { recursive: true, force: true }); } catch { /* ok */ }
+      throw err;
+    }
   }
 
   /**
    * Verify the SHA256 hash of a downloaded tarball against the release SHA256SUMS file.
-   * Skips verification gracefully if SHA256SUMS is not available.
+   * Skips verification gracefully if SHA256SUMS is not available (e.g. older releases).
    */
   private async verifyChecksum(tarballPath: string, tag: string, assetName: string): Promise<void> {
     const sha256sumsUrl = `https://github.com/${GITHUB_REPO}/releases/download/${tag}/SHA256SUMS`;
@@ -526,12 +527,9 @@ export class UpdateManager {
       stream.on('error', reject);
     });
 
-    // Clean up checksum file.
     try { fs.unlinkSync(sha256sumsPath); } catch { /* ok */ }
 
     if (actualHash !== expectedHash) {
-      // Clean up corrupted download.
-      fs.rmSync(STAGING_DIR, { recursive: true, force: true });
       throw new Error(`Checksum mismatch: expected ${expectedHash}, got ${actualHash}`);
     }
 
