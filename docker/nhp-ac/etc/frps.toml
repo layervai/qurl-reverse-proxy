@@ -10,9 +10,11 @@ log.to = "./frps.log"
 log.level = "trace"
 log.maxDays = 3
 
-webServer.addr = "0.0.0.0"
+webServer.addr = "127.0.0.1"
 webServer.port = 7500
 webServer.user = "opennhp-frp"
 webServer.password = "opennhp-frp"
+
+enablePrometheus = true
 
 subDomainHost = "opennhp.online"

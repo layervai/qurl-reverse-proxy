@@ -38,6 +38,7 @@ services:
       - ./nhp-ac/traefik/etc/traefik.toml:/opt/traefik/traefik.toml
       - ./nhp-ac/traefik/etc/provider.toml:/opt/traefik/provider.toml
       - ./nhp-ac/logs/:/nhp-ac/logs/
+      - ../traefik-plugin-metrics:/plugins-local/src/github.com/layervai/qurl-reverse-proxy/traefik-plugin-metrics
     restart: always
     cap_add:
       - NET_ADMIN

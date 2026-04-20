@@ -1,16 +1,21 @@
 
 [http]
+  [http.middlewares]
+    [http.middlewares.nhp-metrics.plugin.nhp-metrics]
+      metricsPath = "/.well-known/nhp-metrics"
+      logIntervalSeconds = 60
+      allowedCIDRs = ["127.0.0.1/8", "177.7.0.0/16"]
+
   [http.routers]
     #
     # hqdata-opennhp-cn
     #
     [http.routers.router-hqdata-opennhp-cn]
       entryPoints = ["web"]
-      #rule = "Host(`*`)"
       rule = "PathPrefix(`/`)"
       service = "service-demo"
-      #tls = "true"
-      
+      middlewares = ["nhp-metrics"]
+
   [http.services]
     [http.services.service-demo.loadBalancer]
       [[http.services.service-demo.loadBalancer.servers]]
